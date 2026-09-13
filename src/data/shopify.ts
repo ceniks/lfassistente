@@ -5,9 +5,61 @@ import { categoria, type PedidoClassificavel } from './classify.js';
  * Cliente
  * ------------------------------------------------------------------ */
 
+/**
+ * Token de acesso da Admin API.
+ *
+ * A Shopify descontinuou os "custom apps" criados no admin, que davam um token
+ * fixo. O caminho atual para um serviço que age sobre a própria loja é o
+ * **client credentials grant**: troca-se Client ID + Client Secret por um token
+ * que vale 24 horas.
+ *
+ * Isso é melhor do que parece. Um token fixo é um segredo que nunca expira e
+ * vaza para sempre; este se renova sozinho e, se vazar, morre no dia seguinte.
+ *
+ * Renovamos com 5 minutos de folga para nunca usar um token no fio da navalha —
+ * uma requisição que sai às 07:59:58 com token expirando às 08:00:00 falharia
+ * justamente no momento do resumo.
+ */
+let tokenCache: { valor: string; expiraEm: number } | null = null;
+
+async function accessToken(): Promise<string> {
+  // Quem ainda tiver um custom app legado continua funcionando.
+  const fixo = config().SHOPIFY_ADMIN_TOKEN;
+  if (fixo) return fixo;
+
+  if (tokenCache && Date.now() < tokenCache.expiraEm) return tokenCache.valor;
+
+  const loja = exigir('SHOPIFY_SHOP');
+  const res = await fetch(`https://${loja}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: exigir('SHOPIFY_CLIENT_ID'),
+      client_secret: exigir('SHOPIFY_CLIENT_SECRET'),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `Shopify recusou as credenciais (${res.status}): ${await res.text()}\n` +
+        'Confira se o app está instalado na loja e se app e loja estão na mesma organização do Dev Dashboard.',
+    );
+  }
+
+  const json = (await res.json()) as { access_token: string; expires_in: number };
+  const margem = 300;
+  tokenCache = {
+    valor: json.access_token,
+    expiraEm: Date.now() + (json.expires_in - margem) * 1000,
+  };
+
+  return tokenCache.valor;
+}
+
 async function admin<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const loja = exigir('SHOPIFY_SHOP');
-  const token = exigir('SHOPIFY_ADMIN_TOKEN');
+  const token = await accessToken();
   const versao = config().SHOPIFY_API_VERSION;
 
   const res = await fetch(

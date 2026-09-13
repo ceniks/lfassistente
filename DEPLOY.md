@@ -15,7 +15,7 @@ Você vai precisar destas cinco coisas. Nenhuma delas eu consigo gerar:
 |---|---|---|
 | **Chip dedicado** | Operadora | Linha nova, ativa no WhatsApp. Nunca o seu número nem o do AtendePro |
 | **Chave da API Claude** | console.anthropic.com | Configure um limite de gasto junto |
-| **Token do Shopify** | Loja → Settings → Apps → Develop apps | Escopos `read_orders`, `read_products`, `read_inventory`, `read_reports` |
+| **Client ID e Secret do Shopify** | Dev Dashboard → seu app → Configurações | O app precisa estar **instalado na loja** e na mesma organização |
 | **System user do Meta** | Business Manager → Usuários do sistema | Permissão `ads_read`, token sem expiração |
 | **Conta no Railway** | railway.app | Plano Hobby, US$ 5/mês |
 
@@ -121,7 +121,8 @@ ANTHROPIC_API_KEY=
 CLAUDE_MODEL=claude-sonnet-5
 
 SHOPIFY_SHOP=l-f-oficial.myshopify.com
-SHOPIFY_ADMIN_TOKEN=
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
 SHOPIFY_API_VERSION=2026-07
 
 META_SYSTEM_TOKEN=

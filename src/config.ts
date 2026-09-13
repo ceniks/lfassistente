@@ -38,6 +38,14 @@ const schema = z.object({
 
   // --- Shopify ---
   SHOPIFY_SHOP: opcional(z.string()),
+  /**
+   * Credenciais do app no Dev Dashboard. A Shopify descontinuou os custom apps
+   * do admin, que davam token fixo; hoje um serviço troca estas duas por um
+   * token de 24h (client credentials grant).
+   */
+  SHOPIFY_CLIENT_ID: opcional(z.string()),
+  SHOPIFY_CLIENT_SECRET: opcional(z.string()),
+  /** Só para quem ainda mantém um custom app legado. Tem precedência se existir. */
   SHOPIFY_ADMIN_TOKEN: opcional(z.string()),
   SHOPIFY_API_VERSION: z.string().default('2026-07'),
 
@@ -117,7 +125,6 @@ const OBRIGATORIAS = [
   'OWNER_PHONE',
   'ANTHROPIC_API_KEY',
   'SHOPIFY_SHOP',
-  'SHOPIFY_ADMIN_TOKEN',
   'META_SYSTEM_TOKEN',
 ] as const satisfies ReadonlyArray<keyof Config>;
 
@@ -154,7 +161,8 @@ export function exigir<K extends keyof Config>(chave: K): NonNullable<Config[K]>
 /** Diz se uma integração tem o mínimo para ser tentada. */
 export function temShopify(): boolean {
   const c = config();
-  return Boolean(c.SHOPIFY_SHOP && c.SHOPIFY_ADMIN_TOKEN);
+  if (!c.SHOPIFY_SHOP) return false;
+  return Boolean(c.SHOPIFY_ADMIN_TOKEN || (c.SHOPIFY_CLIENT_ID && c.SHOPIFY_CLIENT_SECRET));
 }
 
 export function temMeta(): boolean {
