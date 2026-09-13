@@ -90,6 +90,8 @@ const schema = z.object({
   TZ: z.string().default('America/Sao_Paulo'),
   /** Hora do resumo, no fuso acima. */
   DIGEST_CRON: z.string().default('0 8 * * *'),
+  /** De quanto em quanto tempo checar a saúde da conta de anúncios. */
+  VIGIA_CRON: z.string().default('0 * * * *'),
   NODE_ENV: z.enum(['development', 'production']).default('production'),
 });
 

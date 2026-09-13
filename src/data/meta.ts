@@ -220,3 +220,95 @@ export async function fluxosDoDia(
 
   return saida;
 }
+
+/* ------------------------------------------------------------------ *
+ * Saúde da conta de anúncios
+ * ------------------------------------------------------------------ */
+
+/**
+ * Estados possíveis de uma conta de anúncios.
+ *
+ * O que interessa aqui não é a taxonomia da Meta, e sim a distinção prática:
+ * a conta está veiculando, está prestes a parar, ou já parou?
+ */
+const ESTADOS: Record<number, { nome: string; gravidade: 'ok' | 'atencao' | 'critico' }> = {
+  1: { nome: 'ativa', gravidade: 'ok' },
+  2: { nome: 'desativada', gravidade: 'critico' },
+  3: { nome: 'fatura em aberto', gravidade: 'critico' },
+  7: { nome: 'em análise de risco', gravidade: 'atencao' },
+  8: { nome: 'aguardando liquidação', gravidade: 'atencao' },
+  9: { nome: 'período de tolerância (cobrança pendente)', gravidade: 'atencao' },
+  100: { nome: 'encerramento pendente', gravidade: 'critico' },
+  101: { nome: 'encerrada', gravidade: 'critico' },
+};
+
+export interface SaudeConta {
+  id: string;
+  nome: string;
+  estado: string;
+  gravidade: 'ok' | 'atencao' | 'critico' | 'desconhecido';
+  motivoDesativacao?: string;
+  /** Saldo devedor, quando a Meta informa. */
+  valorEmAberto?: number;
+  moeda?: string;
+}
+
+/**
+ * Estado de cobrança das contas configuradas.
+ *
+ * Vale checar com frequência, não só às 8h: uma conta que entra em
+ * `período de tolerância` ainda veicula, mas se ninguém liquidar a fatura ela
+ * é suspensa — e aí a mídia para inteira, sem aviso. Em 13/09/2026 a L&F01,
+ * única conta que gasta, estava exatamente nesse estado.
+ */
+export async function saudeDasContas(): Promise<SaudeConta[]> {
+  const { META_AD_ACCOUNT_IDS } = config();
+  const token = exigir('META_SYSTEM_TOKEN');
+
+  const saida: SaudeConta[] = [];
+
+  for (const conta of META_AD_ACCOUNT_IDS) {
+    const params = new URLSearchParams({
+      access_token: token,
+      fields: 'name,account_status,disable_reason,balance,currency',
+    });
+
+    const res = await fetch(`${GRAPH}/act_${conta}?${params}`);
+    if (!res.ok) {
+      saida.push({
+        id: conta,
+        nome: conta,
+        estado: `não consegui consultar (${res.status})`,
+        gravidade: 'desconhecido',
+      });
+      continue;
+    }
+
+    const j = (await res.json()) as {
+      name?: string;
+      account_status?: number;
+      disable_reason?: number;
+      balance?: string;
+      currency?: string;
+    };
+
+    const estado = ESTADOS[j.account_status ?? -1];
+
+    saida.push({
+      id: conta,
+      nome: j.name ?? conta,
+      estado: estado?.nome ?? `código ${j.account_status}`,
+      gravidade: estado?.gravidade ?? 'desconhecido',
+      // A Meta devolve o saldo em centavos.
+      valorEmAberto: j.balance ? Number(j.balance) / 100 : undefined,
+      moeda: j.currency,
+    });
+  }
+
+  return saida;
+}
+
+/** Só o que não está bem — é isso que vira alerta. */
+export async function contasComProblema(): Promise<SaudeConta[]> {
+  return (await saudeDasContas()).filter((c) => c.gravidade !== 'ok');
+}

@@ -3,6 +3,7 @@ import { exigirConfigCompleta, exigir } from './config.js';
 import { criarApp } from './whatsapp/webhook.js';
 import { enviarTexto } from './whatsapp/evolution.js';
 import { construirResumo, ontem } from './digest/build.js';
+import { verificarContas } from './vigia.js';
 
 // Valida o conjunto obrigatório antes de qualquer coisa subir.
 const c = exigirConfigCompleta();
@@ -54,6 +55,21 @@ cron.schedule(
   },
   { timezone: c.TZ },
 );
+
+/* ------------------------------------------------------------------ *
+ * Vigia da conta de anúncios
+ * ------------------------------------------------------------------ *
+ *
+ * De hora em hora, não uma vez por dia. Uma conta suspensa por fatura em aberto
+ * derruba a mídia inteira, e esperar até as 8h da manhã seguinte custaria um dia
+ * de veiculação. Só avisa quando o estado muda, para não virar ruído.
+ */
+
+cron.schedule(c.VIGIA_CRON, () => void verificarContas(), { timezone: c.TZ });
+
+// Uma checagem no boot: se a conta já estiver com problema quando o serviço
+// subir, você fica sabendo agora, não na virada da hora.
+setTimeout(() => void verificarContas(), 30_000);
 
 /* ------------------------------------------------------------------ *
  * Encerramento
