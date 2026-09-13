@@ -80,8 +80,11 @@ export const DIA_12_09: DadosResumo = {
 
   producao: {
     naOficina: 27,
+    pecasNaOficina: 27_967,
+    noGalpao: 30,
     atrasados: 9,
-    maisCritico: 'Colete Zurique ref:101 (previsão era 16/08)',
+    maisCritico: 'Colete Zurique ref:101 (previsão era 16/08/2026)',
+    diasDeAtrasoDoMaisCritico: 28,
   },
 
   atendimento: {
@@ -94,6 +97,8 @@ export const DIA_12_09: DadosResumo = {
     ],
     carrinhosGerados: 127,
     carrinhosComErro: 27, // 21% dos 127
+    carrinhosEnviados: 27,
+    carrinhosRespondidos: 10,
     npsSeteDias: 88,
     npsRespostas: 152,
   },

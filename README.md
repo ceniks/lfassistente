@@ -17,9 +17,28 @@ perguntado e gera o detalhado em PDF sob demanda.
 | `src/whatsapp/webhook.ts` | Recebimento, com allowlist do número do dono |
 | `src/agent/` | Agent SDK, MCPs e as instruções do assistente |
 | `mcp/loja-server.ts` | Servidor MCP que expõe vendas, tráfego, mídia e comparativo ao agente |
+| `src/data/mcp-client.ts` | Cliente dos MCPs próprios (AtendePro e Corte Pro) |
+| `src/data/producao.ts` | Cortes na oficina, atrasos e estoque de tecidos |
+| `src/data/atendimento.ts` | Fila por atendente e canal, carrinhos, NPS e campanhas RFM |
 
-Falta ligar: Google Ads (esperando developer token), produção e atendimento via
-MCP próprio, worker de PDF, e o balanço financeiro (fase final).
+Falta ligar: Google Ads (esperando developer token), worker de PDF e o balanço
+financeiro (fase final).
+
+### Por que produção e atendimento são chamados no código, e não pelo agente
+
+O agente tem acesso aos mesmos MCPs para conversar — são caminhos paralelos de
+propósito. O resumo das 8h chama direto porque precisa ser determinístico: se os
+números viessem de uma consulta feita pelo modelo, dois dias iguais poderiam
+render mensagens diferentes.
+
+Os dois blocos são opcionais no resumo. Se um MCP estiver fora do ar, a mensagem
+sai sem aquela seção em vez de não sair — um dia sem a linha de produção é muito
+melhor que silêncio às 8h.
+
+Um aviso sobre `producao.ts`: o `resumo_producao` do Corte Pro devolve texto
+formatado para humano, não JSON, então há parse por regex ali. Se a redação do
+Corte Pro mudar, aqueles números param de aparecer. Cada campo falha para zero em
+vez de derrubar o resumo.
 
 ### Por que as regras vivem no código, não no prompt
 

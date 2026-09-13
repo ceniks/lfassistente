@@ -2,6 +2,8 @@ import { config } from '../config.js';
 import { vendasDoDia, trafegoDoDia, agregar, pedidosPagosEm } from '../data/shopify.js';
 import { midiaDoDia } from '../data/meta.js';
 import { metaDoDia } from '../data/metas.js';
+import { producaoAtual } from '../data/producao.js';
+import { atendimentoAtual } from '../data/atendimento.js';
 import { montarResumo, type DadosResumo } from './format.js';
 import { perguntarSemContexto } from '../agent/runner.js';
 import { PROMPT_LEITURA } from '../agent/prompt.js';
@@ -73,12 +75,26 @@ async function media7d(dia: string) {
  * são chamados aqui para não duplicar a integração.
  */
 export async function construirResumo(dia = ontem()): Promise<string> {
-  const [vendas, trafego, midia, meta, medias] = await Promise.all([
+  // Produção e atendimento vêm dos MCPs próprios. Se um deles estiver fora do
+  // ar, o resumo sai sem aquele bloco em vez de não sair — um dia sem a linha
+  // de produção é muito melhor que silêncio às 8h.
+  const opcional = async <T>(nome: string, f: () => Promise<T | null>): Promise<T | null> => {
+    try {
+      return await f();
+    } catch (e) {
+      console.error(`[digest] ${nome} falhou, seguindo sem o bloco:`, e);
+      return null;
+    }
+  };
+
+  const [vendas, trafego, midia, meta, medias, producao, atendimento] = await Promise.all([
     vendasDoDia(dia),
     trafegoDoDia(dia),
     midiaDoDia(dia),
     metaDoDia(dia),
     media7d(dia),
+    opcional('produção', () => producaoAtual()),
+    opcional('atendimento', () => atendimentoAtual(dia)),
   ]);
 
   const dados: DadosResumo = {
@@ -91,8 +107,8 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     midia,
     google: null,
     fluxos: [],
-    producao: null,
-    atendimento: null,
+    producao,
+    atendimento,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.

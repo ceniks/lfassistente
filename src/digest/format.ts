@@ -1,5 +1,7 @@
 import type { ResumoVendas, Trafego } from '../data/shopify.js';
 import type { MidiaMeta, FluxoTemplate } from '../data/meta.js';
+import type { Producao } from '../data/producao.js';
+import type { Atendimento } from '../data/atendimento.js';
 
 /* ------------------------------------------------------------------ *
  * Formatadores
@@ -59,17 +61,8 @@ export interface DadosResumo {
   midia: MidiaMeta;
   google?: { valorPago: number; receita: number; roas: number } | null;
   fluxos: FluxoTemplate[];
-  producao?: { naOficina: number; atrasados: number; maisCritico?: string } | null;
-  atendimento?: {
-    aguardando: number;
-    porAtendente: Array<{ nome: string; total: number }>;
-    semAtendente: number;
-    porCanal: Array<{ canal: string; total: number }>;
-    carrinhosGerados: number;
-    carrinhosComErro: number;
-    npsSeteDias: number | null;
-    npsRespostas: number;
-  } | null;
+  producao?: Producao | null;
+  atendimento?: Atendimento | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -171,9 +164,13 @@ export function montarResumo(d: DadosResumo): string {
 
   // --- Produção ---
   if (d.producao) {
+    const pr = d.producao;
     const p = ['', '✂️ PRODUÇÃO'];
-    p.push(`${numero(d.producao.naOficina)} cortes na oficina · ${numero(d.producao.atrasados)} atrasados`);
-    if (d.producao.maisCritico) p.push(`Mais crítico: ${d.producao.maisCritico}`);
+    p.push(`${numero(pr.naOficina)} cortes na oficina · ${numero(pr.atrasados)} atrasados`);
+    if (pr.maisCritico) {
+      const dias = pr.diasDeAtrasoDoMaisCritico;
+      p.push(`Mais crítico: ${pr.maisCritico}${dias ? ` — ${numero(dias)} dias` : ''}`);
+    }
     b.push(p.join('\n'));
   }
 
