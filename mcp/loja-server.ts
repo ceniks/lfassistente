@@ -16,7 +16,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { vendasDoDia, trafegoDoDia } from '../src/data/shopify.js';
-import { midiaDoDia } from '../src/data/meta.js';
+import { midiaDoDia, desempenhoPorNivel, type Nivel } from '../src/data/meta.js';
+import { midiaGoogleDoDia, temGoogleAds } from '../src/data/google.js';
 import { metaDoDia } from '../src/data/metas.js';
 import { ontem } from '../src/digest/build.js';
 import { dinheiro, pct, numero } from '../src/digest/format.js';
@@ -149,6 +150,133 @@ server.tool(
             `Compras atribuídas: ${numero(m.compras)}`,
             `CPA: ${dinheiro(m.cpa)} · CPM: ${dinheiro(m.cpm)} · CPC: ${dinheiro(m.cpc)} (líquidos)`,
             `Receita atribuída pelo Meta: ${dinheiro(m.receitaAtribuida)}`,
+          ].join('\n'),
+        },
+      ],
+    };
+  },
+);
+
+server.tool(
+  'desempenho_de_midia',
+  [
+    'Desempenho por campanha, conjunto de anúncios ou anúncio em um dia no Meta:',
+    'gasto, compras, ROAS, CPA, CPM e CPC de cada um.',
+    'Use para perguntas como "qual campanha teve o melhor CPA", "qual anúncio vendeu mais",',
+    '"onde está indo a verba".',
+    'ATENÇÃO ao responder: num único dia a maioria das campanhas tem uma ou duas compras,',
+    'e um CPA calculado sobre uma compra não significa nada. Use minimo_compras para filtrar,',
+    'e ao apontar um vencedor diga sobre quantas compras o número foi calculado.',
+  ].join(' '),
+  {
+    dia: diaSchema,
+    nivel: z
+      .enum(['campanha', 'conjunto', 'anuncio'])
+      .optional()
+      .describe('Granularidade. Padrão: campanha.'),
+    ordenar_por: z
+      .enum(['gasto', 'cpa', 'roas', 'compras'])
+      .optional()
+      .describe('Padrão: gasto. Use cpa ou roas quando a pergunta for sobre eficiência.'),
+    minimo_compras: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Ignora linhas com menos compras que isto. Padrão 0 (mostra tudo).'),
+    limite: z.number().int().min(1).max(50).optional().describe('Quantas linhas. Padrão 10.'),
+  },
+  async ({ dia, nivel, ordenar_por, minimo_compras, limite }) => {
+    const d = dia ?? ontem();
+    const traduz: Record<string, Nivel> = { campanha: 'campaign', conjunto: 'adset', anuncio: 'ad' };
+    const n = traduz[nivel ?? 'campanha'];
+    const min = minimo_compras ?? 0;
+    const max = limite ?? 10;
+
+    const todas = await desempenhoPorNivel(d, n);
+    const elegiveis = todas.filter((l) => l.compras >= min);
+
+    // Sem compra nenhuma, CPA é infinito e ROAS é zero — ordenar por eles
+    // colocaria justamente as linhas sem informação no topo.
+    const ordem = ordenar_por ?? 'gasto';
+    const chave = (l: (typeof todas)[number]) =>
+      ordem === 'cpa'
+        ? l.compras > 0
+          ? l.cpa
+          : Number.POSITIVE_INFINITY
+        : ordem === 'roas'
+          ? -l.roas
+          : ordem === 'compras'
+            ? -l.compras
+            : -l.gastoLiquido;
+
+    const linhas = [...elegiveis].sort((a, b) => chave(a) - chave(b)).slice(0, max);
+
+    const rotulo = { campaign: 'campanha', adset: 'conjunto', ad: 'anúncio' }[n];
+    const texto = [
+      `Desempenho por ${rotulo} em ${d} — ordenado por ${ordem}` +
+        (min > 0 ? `, com pelo menos ${min} compra(s)` : ''),
+      `${todas.length} ${rotulo}s com gasto no dia` +
+        (min > 0 ? `, ${elegiveis.length} passaram no filtro` : ''),
+      '',
+    ];
+
+    if (!linhas.length) {
+      texto.push('Nenhuma linha atende ao filtro.');
+    }
+
+    for (const l of linhas) {
+      texto.push(
+        `${l.nome}${l.objetivo ? ` [${l.objetivo}]` : ''}`,
+        `  pago ${dinheiro(l.valorPago)} (líq. ${dinheiro(l.gastoLiquido)}) · ` +
+          `${numero(l.compras)} compra(s) · ${dinheiro(l.receita)} · ROAS ${numero(l.roas, 2)}`,
+        `  CPA ${l.compras > 0 ? dinheiro(l.cpa) : '—'} · CPM ${dinheiro(l.cpm)} · CPC ${dinheiro(l.cpc)} (líquidos)`,
+        '',
+      );
+    }
+
+    const semCompra = todas.filter((l) => l.compras === 0);
+    if (semCompra.length) {
+      const gasto = semCompra.reduce((s, l) => s + l.valorPago, 0);
+      texto.push(
+        `${semCompra.length} ${rotulo}(s) gastaram ${dinheiro(gasto)} sem nenhuma compra atribuída no dia.`,
+      );
+    }
+
+    return { content: [{ type: 'text', text: texto.join('\n') }] };
+  },
+);
+
+server.tool(
+  'midia_google_do_dia',
+  [
+    'Gasto, vendas, ROAS, CPC e CPM no Google Ads em um dia.',
+    'Sem imposto: o valor da API do Google já é o cobrado, diferente do Meta.',
+    'A receita é a atribuição do Google, que conta a conversão no dia do clique e não no dia',
+    'do pagamento — por isso ela não bate com o faturamento do Shopify, e não deveria bater.',
+  ].join(' '),
+  { dia: diaSchema },
+  async ({ dia }) => {
+    const d = dia ?? ontem();
+
+    if (!temGoogleAds()) {
+      return {
+        content: [{ type: 'text', text: 'Google Ads não está configurado neste ambiente.' }],
+      };
+    }
+
+    const g = await midiaGoogleDoDia(d);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: [
+            `Google Ads em ${d}`,
+            `Gasto: ${dinheiro(g.valorPago)} (sem imposto, por definição)`,
+            `Vendas atribuídas: ${dinheiro(g.receita)} em ${numero(g.conversoes, 2)} conversões`,
+            `ROAS: ${numero(g.roas, 2)}`,
+            `${numero(g.cliques)} cliques · CPC ${dinheiro(g.cpc)} · CPM ${dinheiro(g.cpm)}`,
           ].join('\n'),
         },
       ],

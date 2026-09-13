@@ -150,6 +150,109 @@ async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: num
 }
 
 /* ------------------------------------------------------------------ *
+ * Desempenho por campanha, conjunto ou anúncio
+ * ------------------------------------------------------------------ */
+
+export type Nivel = 'campaign' | 'adset' | 'ad';
+
+export interface LinhaMidia {
+  id: string;
+  nome: string;
+  /** Objetivo da campanha. Só vem preenchido no nível de campanha. */
+  objetivo?: string;
+  gastoLiquido: number;
+  valorPago: number;
+  compras: number;
+  receita: number;
+  /** Sobre o valor pago, como em todo ROAS daqui. */
+  roas: number;
+  /** Sobre o gasto líquido, para comparar com leilão e histórico. */
+  cpa: number;
+  cpm: number;
+  cpc: number;
+  cliques: number;
+  impressoes: number;
+}
+
+const NIVEL_CAMPO: Record<Nivel, string> = {
+  campaign: 'campaign_id,campaign_name,objective',
+  adset: 'adset_id,adset_name',
+  ad: 'ad_id,ad_name',
+};
+
+/**
+ * Uma linha por campanha, conjunto ou anúncio no dia.
+ *
+ * O cuidado que este código carrega e que a pergunta "qual campanha teve o
+ * melhor CPA?" esconde: num dia, boa parte das campanhas tem uma ou duas
+ * compras. Uma campanha que gastou R$ 40 e vendeu uma peça tem CPA de R$ 40 e
+ * ganha de todas — sem significar nada. Por isso a linha sempre carrega gasto e
+ * número de compras junto, e quem consome filtra por volume mínimo antes de
+ * coroar alguém.
+ */
+export async function desempenhoPorNivel(dia: string, nivel: Nivel): Promise<LinhaMidia[]> {
+  const { META_AD_ACCOUNT_IDS, META_TAX_FACTOR } = config();
+  const saida: LinhaMidia[] = [];
+
+  for (const conta of META_AD_ACCOUNT_IDS) {
+    let url: string | null =
+      `${GRAPH}/act_${conta}/insights?` +
+      new URLSearchParams({
+        access_token: exigir('META_SYSTEM_TOKEN'),
+        time_range: JSON.stringify({ since: dia, until: dia }),
+        fields: `${NIVEL_CAMPO[nivel]},spend,impressions,clicks,actions,action_values`,
+        level: nivel,
+        limit: '200',
+      });
+
+    while (url) {
+      const res: Response = await fetch(url);
+      if (!res.ok) throw new Error(`Meta ${res.status}: ${await res.text()}`);
+
+      const json = (await res.json()) as {
+        data?: Array<Record<string, unknown>>;
+        paging?: { next?: string };
+      };
+
+      for (const row of json.data ?? []) {
+        const gasto = n(row.spend as string | undefined);
+        const acoes = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
+        const valores = (row.action_values ?? []) as Array<{ action_type: string; value: string }>;
+
+        const compra = (xs: Array<{ action_type: string; value: string }>) =>
+          n(xs.find((x) => x.action_type === 'omni_purchase' || x.action_type === 'purchase')?.value);
+
+        const compras = compra(acoes);
+        const receita = compra(valores);
+        const cliques = n(row.clicks as string | undefined);
+        const impressoes = n(row.impressions as string | undefined);
+        const valorPago = gasto * META_TAX_FACTOR;
+
+        saida.push({
+          id: String(row[`${nivel}_id`] ?? ''),
+          nome: String(row[`${nivel}_name`] ?? '(sem nome)'),
+          objetivo: row.objective ? String(row.objective) : undefined,
+          gastoLiquido: gasto,
+          valorPago,
+          compras,
+          receita,
+          roas: valorPago > 0 ? receita / valorPago : 0,
+          cpa: compras > 0 ? gasto / compras : 0,
+          cpm: impressoes > 0 ? (gasto / impressoes) * 1000 : 0,
+          cpc: cliques > 0 ? gasto / cliques : 0,
+          cliques,
+          impressoes,
+        });
+      }
+
+      url = json.paging?.next ?? null;
+    }
+  }
+
+  return saida.filter((l) => l.gastoLiquido > 0).sort((a, b) => b.gastoLiquido - a.gastoLiquido);
+}
+
+/* ------------------------------------------------------------------ *
  * Mensagens de template enviadas no dia
  * ------------------------------------------------------------------ */
 
