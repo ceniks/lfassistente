@@ -87,10 +87,34 @@ export async function perguntarSemContexto(prompt: string): Promise<string> {
       settingSources: [],
     },
   })) {
-    if (msg.type === 'result' && msg.subtype === 'success') return msg.result;
+    if (msg.type !== 'result') continue;
+
+    const resultado = msg.subtype === 'success' ? msg.result : '';
+
+    // O SDK devolve falha de autenticação como texto de resposta bem-sucedida.
+    // Sem esta checagem, "Invalid API key · Please run /login" seria impresso no
+    // resumo como se fosse a leitura do dia — uma mensagem de erro disfarçada de
+    // análise é pior que nenhuma análise.
+    if (!resultado || pareceErroDoSdk(resultado)) {
+      throw new Error(`agente não respondeu: ${resultado || msg.subtype}`);
+    }
+
+    return resultado;
   }
 
-  return '';
+  throw new Error('agente não devolveu resultado');
+}
+
+const SINAIS_DE_ERRO = [
+  /invalid api key/i,
+  /please run \/login/i,
+  /authentication_error/i,
+  /credit balance is too low/i,
+  /rate.?limit/i,
+];
+
+function pareceErroDoSdk(texto: string): boolean {
+  return texto.length < 300 && SINAIS_DE_ERRO.some((r) => r.test(texto));
 }
 
 export function limparHistorico(): void {

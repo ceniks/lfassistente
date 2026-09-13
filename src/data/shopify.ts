@@ -57,28 +57,86 @@ async function accessToken(): Promise<string> {
   return tokenCache.valor;
 }
 
-async function admin<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+interface RespostaGraphQL<T> {
+  data?: T;
+  errors?: Array<{ message: string; extensions?: { code?: string } }>;
+  extensions?: {
+    cost?: {
+      throttleStatus?: { currentlyAvailable: number; restoreRate: number; maximumAvailable: number };
+    };
+  };
+}
+
+/**
+ * Saldo de pontos do balde da Shopify, atualizado a cada resposta.
+ *
+ * A Admin API não limita por número de requisições, e sim por custo: cada query
+ * consome pontos de um balde que se reabastece por segundo. Guardar o saldo
+ * conhecido permite pausar ANTES de levar o `THROTTLED`, em vez de errar e
+ * tentar de novo.
+ */
+let saldo: { pontos: number; restaurePorSegundo: number; em: number } | null = null;
+
+async function esperarSaldo(custoEstimado = 100): Promise<void> {
+  if (!saldo) return;
+
+  const decorrido = (Date.now() - saldo.em) / 1000;
+  const disponivel = saldo.pontos + decorrido * saldo.restaurePorSegundo;
+
+  if (disponivel >= custoEstimado) return;
+
+  const faltam = custoEstimado - disponivel;
+  await dormir(Math.ceil((faltam / saldo.restaurePorSegundo) * 1000) + 100);
+}
+
+async function admin<T>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  tentativa = 0,
+): Promise<T> {
   const loja = exigir('SHOPIFY_SHOP');
   const token = await accessToken();
   const versao = config().SHOPIFY_API_VERSION;
 
-  const res = await fetch(
-    `https://${loja}/admin/api/${versao}/graphql.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token,
-      },
-      body: JSON.stringify({ query, variables }),
+  await esperarSaldo();
+
+  const res = await fetch(`https://${loja}/admin/api/${versao}/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
     },
-  );
+    body: JSON.stringify({ query, variables }),
+  });
+
+  // 429 vem sem corpo útil; o throttle do GraphQL vem com 200 e erro no corpo.
+  if (res.status === 429) {
+    if (tentativa >= 5) throw new Error('Shopify: limite de requisições, 5 tentativas');
+    await dormir(2000 * 2 ** tentativa);
+    return admin<T>(query, variables, tentativa + 1);
+  }
 
   if (!res.ok) {
     throw new Error(`Shopify ${res.status}: ${await res.text()}`);
   }
 
-  const json = (await res.json()) as { data?: T; errors?: unknown[] };
+  const json = (await res.json()) as RespostaGraphQL<T>;
+
+  const t = json.extensions?.cost?.throttleStatus;
+  if (t) {
+    saldo = { pontos: t.currentlyAvailable, restaurePorSegundo: t.restoreRate, em: Date.now() };
+  }
+
+  const throttled = json.errors?.some((e) => e.extensions?.code === 'THROTTLED');
+  if (throttled) {
+    if (tentativa >= 5) throw new Error('Shopify: limite de requisições, 5 tentativas');
+    // Espera crescente: 2s, 4s, 8s… O balde restaura sozinho nesse intervalo.
+    await dormir(2000 * 2 ** tentativa);
+    return admin<T>(query, variables, tentativa + 1);
+  }
+
   if (json.errors?.length) {
     throw new Error(`Shopify GraphQL: ${JSON.stringify(json.errors)}`);
   }
@@ -142,26 +200,26 @@ const ORDERS_QUERY = `
   }
 `;
 
-/**
- * Busca os pedidos cujo pagamento foi confirmado em `dia` (YYYY-MM-DD).
- *
- * Por que a janela de 7 dias para trás: a definição acordada é "pedido pago
- * naquele dia", não "pedido criado naquele dia". Com Pix e boleto, um pedido
- * criado na terça pode ser pago na quinta — e é na quinta que ele conta. A
- * busca do Shopify não expõe data de pagamento, então varremos os pedidos
- * criados na janela e filtramos pela transação de captura.
- *
- * Sete dias cobre boleto com folga. Pedidos pagos mais de uma semana depois de
- * criados são raros o bastante para não valerem o custo de varrer mais.
- */
-export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
-  const inicio = new Date(`${dia}T00:00:00-03:00`);
-  const janela = new Date(inicio);
-  janela.setDate(janela.getDate() - 7);
+/** Dias de folga para pedido criado num dia e pago em outro (Pix, boleto). */
+const FOLGA_PAGAMENTO = 7;
 
+/**
+ * Busca os pedidos criados num intervalo, paginando.
+ *
+ * Esta é a única função que fala com a API de pedidos. Tudo o mais — um dia, uma
+ * semana, a média — sai de agrupar o resultado dela em memória.
+ *
+ * O motivo é custo. A definição acordada é "pedido pago naquele dia", não
+ * "criado naquele dia", e a busca do Shopify não expõe data de pagamento — então
+ * é preciso varrer os pedidos criados numa janela maior e olhar a transação de
+ * captura. Buscar essa janela separadamente para cada um dos 8 dias do resumo
+ * multiplicava o trabalho por oito e derrubava a conta no limite de requisições.
+ * Uma busca só, com o intervalo inteiro, resolve o mesmo problema.
+ */
+export async function pedidosCriadosEntre(de: string, ate: string): Promise<OrderNode[]> {
   const q = [
-    `created_at:>=${janela.toISOString().slice(0, 10)}`,
-    `created_at:<=${dia}T23:59:59-03:00`,
+    `created_at:>=${de}T00:00:00-03:00`,
+    `created_at:<=${ate}T23:59:59-03:00`,
     'financial_status:paid',
   ].join(' ');
 
@@ -178,17 +236,66 @@ export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
     cursor = data.orders.pageInfo.hasNextPage ? data.orders.pageInfo.endCursor : null;
   } while (cursor);
 
-  return pedidos.filter((p) => pagouEm(p, dia));
+  return pedidos;
 }
 
-/** Houve captura bem-sucedida na data? */
-function pagouEm(pedido: OrderNode, dia: string): boolean {
-  return pedido.transactions.some((t) => {
-    if (t.status !== 'SUCCESS') return false;
-    if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') return false;
-    if (!t.processedAt) return false;
-    return emSaoPaulo(t.processedAt) === dia;
-  });
+/** Agrupa por dia de pagamento. Um pedido sem captura bem-sucedida fica de fora. */
+export function agruparPorDiaDePagamento(pedidos: OrderNode[]): Map<string, OrderNode[]> {
+  const porDia = new Map<string, OrderNode[]>();
+
+  for (const p of pedidos) {
+    const dia = diaDoPagamento(p);
+    if (!dia) continue;
+    const lista = porDia.get(dia);
+    if (lista) lista.push(p);
+    else porDia.set(dia, [p]);
+  }
+
+  return porDia;
+}
+
+/**
+ * Busca e agrupa de uma vez os dias que o resumo precisa.
+ *
+ * `dias` são as datas de referência; a busca recua `FOLGA_PAGAMENTO` dias além
+ * da mais antiga para pegar pedidos criados antes e pagos dentro do período.
+ */
+export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVendas>> {
+  const ordenados = [...dias].sort();
+  const primeiro = ordenados[0];
+  const ultimo = ordenados[ordenados.length - 1];
+
+  const inicioBusca = new Date(`${primeiro}T12:00:00-03:00`);
+  inicioBusca.setDate(inicioBusca.getDate() - FOLGA_PAGAMENTO);
+
+  const pedidos = await pedidosCriadosEntre(inicioBusca.toISOString().slice(0, 10), ultimo);
+  const porDia = agruparPorDiaDePagamento(pedidos);
+
+  const saida = new Map<string, ResumoVendas>();
+  for (const dia of dias) {
+    saida.set(dia, agregar(porDia.get(dia) ?? [], dia));
+  }
+  return saida;
+}
+
+/** Mantido para uso avulso (o servidor MCP responde perguntas de um dia só). */
+export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
+  const inicio = new Date(`${dia}T12:00:00-03:00`);
+  inicio.setDate(inicio.getDate() - FOLGA_PAGAMENTO);
+
+  const pedidos = await pedidosCriadosEntre(inicio.toISOString().slice(0, 10), dia);
+  return pedidos.filter((p) => diaDoPagamento(p) === dia);
+}
+
+/** Data (São Paulo) da captura bem-sucedida, ou null se não houve. */
+function diaDoPagamento(pedido: OrderNode): string | null {
+  for (const t of pedido.transactions) {
+    if (t.status !== 'SUCCESS') continue;
+    if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') continue;
+    if (!t.processedAt) continue;
+    return emSaoPaulo(t.processedAt);
+  }
+  return null;
 }
 
 function emSaoPaulo(iso: string): string {
@@ -310,33 +417,45 @@ export interface Trafego {
   conversao: number;
 }
 
+/**
+ * O ShopifyQL devolve `rows` como JSON — um array de objetos com as colunas
+ * nomeadas, não um array de arrays posicional. Ler por nome é mais seguro de
+ * qualquer forma: acrescentar uma métrica à consulta deixa de reordenar tudo.
+ */
 const SHOPIFYQL = `
   query ShopifyQL($query: String!) {
     shopifyqlQuery(query: $query) {
-      __typename
-      ... on TableResponse {
-        tableData { rowData columns { name dataType } }
+      parseErrors
+      tableData {
+        rows
+        columns { name dataType }
       }
-      parseErrors { code message }
     }
   }
 `;
 
+interface RespostaShopifyQL {
+  shopifyqlQuery: {
+    parseErrors?: string[] | null;
+    tableData?: { rows?: Array<Record<string, string>> | null } | null;
+  };
+}
+
 export async function trafegoDoDia(dia: string): Promise<Trafego> {
   const q = `FROM sessions SHOW sessions, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout SINCE ${dia} UNTIL ${dia}`;
 
-  const data = await admin<{
-    shopifyqlQuery: {
-      tableData?: { rowData: string[][] };
-      parseErrors?: Array<{ message: string }>;
-    };
-  }>(SHOPIFYQL, { query: q });
+  const data = await admin<RespostaShopifyQL>(SHOPIFYQL, { query: q });
 
   const erros = data.shopifyqlQuery.parseErrors;
-  if (erros?.length) throw new Error(`ShopifyQL: ${erros.map((e) => e.message).join('; ')}`);
+  if (erros?.length) throw new Error(`ShopifyQL: ${erros.join('; ')}`);
 
-  const linha = data.shopifyqlQuery.tableData?.rowData?.[0] ?? [];
-  const [sessoes = 0, adicoes = 0, iniciados = 0, concluidos = 0] = linha.map(Number);
+  const linha = data.shopifyqlQuery.tableData?.rows?.[0] ?? {};
+  const n = (chave: string) => Number(linha[chave] ?? 0);
+
+  const sessoes = n('sessions');
+  const adicoes = n('sessions_with_cart_additions');
+  const iniciados = n('sessions_that_reached_checkout');
+  const concluidos = n('sessions_that_completed_checkout');
 
   return {
     sessoes,

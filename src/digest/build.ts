@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { vendasDoDia, trafegoDoDia, agregar, pedidosPagosEm } from '../data/shopify.js';
+import { trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
 import { midiaDoDia } from '../data/meta.js';
 import { metaDoDia } from '../data/metas.js';
 import { producaoAtual } from '../data/producao.js';
@@ -38,12 +38,14 @@ function diasAntes(dia: string, n: number): string[] {
  * inventada: o painel inclui troca e influencer, então a base viria mais baixa e
  * qualquer dia pareceria melhor do que foi.
  */
-async function media7d(dia: string) {
+async function media7d(dia: string, vendas: Map<string, ResumoVendas>) {
   const dias = diasAntes(dia, 7);
 
-  const resumos = await Promise.all(
-    dias.map(async (d) => agregar(await pedidosPagosEm(d), d)),
-  );
+  const resumos = dias.map((d) => vendas.get(d)).filter((r): r is ResumoVendas => Boolean(r));
+
+  // O ShopifyQL custa 3 pontos por consulta mas leva segundos para responder.
+  // Em série, os 7 dias dominavam o tempo do resumo inteiro; em paralelo, o
+  // custo somado nem arranha o limite e o tempo vira o da consulta mais lenta.
   const trafegos = await Promise.all(dias.map((d) => trafegoDoDia(d)));
 
   const somar = <T>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
@@ -87,12 +89,17 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     }
   };
 
-  const [vendas, trafego, midia, meta, medias, producao, atendimento] = await Promise.all([
-    vendasDoDia(dia),
+  // Uma busca só cobre o dia e os 7 anteriores. Ver o comentário em
+  // `vendasPorDia`: buscar dia a dia multiplicava as chamadas por oito.
+  const todosOsDias = [dia, ...diasAntes(dia, 7)];
+  const vendasPorData = await vendasPorDia(todosOsDias);
+  const vendas = vendasPorData.get(dia)!;
+
+  const [trafego, midia, meta, medias, producao, atendimento] = await Promise.all([
     trafegoDoDia(dia),
-    midiaDoDia(dia),
-    metaDoDia(dia),
-    media7d(dia),
+    opcional('mídia', () => midiaDoDia(dia)),
+    opcional('metas', () => metaDoDia(dia)),
+    media7d(dia, vendasPorData),
     opcional('produção', () => producaoAtual()),
     opcional('atendimento', () => atendimentoAtual(dia)),
   ]);
