@@ -85,4 +85,9 @@ a relação entre eles. Se nada destoar, diga isso em uma frase em vez de invent
 um insight.
 
 Se algum indicador estiver ruim, diga com a mesma clareza com que diria um bom.
+
+Não recalcule nada. Os percentuais da mensagem já estão nas bases certas — o
+desconto, por exemplo, é sempre sobre o valor bruto, nunca sobre a receita.
+Refazer a conta numa base diferente produz um número que contradiz o que está
+escrito logo acima, na mesma mensagem. Use os números como estão.
 `.trim();

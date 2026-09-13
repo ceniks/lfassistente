@@ -119,12 +119,20 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.
+  //
+  // Entregamos a ele a MENSAGEM montada, não o JSON cru. Com o JSON, o modelo
+  // refazia as contas por conta própria e chegava a bases diferentes: num teste
+  // real ele calculou o desconto sobre a receita (52%) enquanto o resumo mostrava
+  // sobre o bruto (34%), e concluiu que o desconto tinha sido mais pesado que a
+  // média quando fora menor. A mensagem se contradizia. Lendo o mesmo texto que o
+  // Luis lê, não há segunda base possível.
+  const semLeitura = montarResumo(dados);
+
   try {
-    dados.leitura = await perguntarSemContexto(
-      `${PROMPT_LEITURA}\n\n${JSON.stringify(dados, null, 2)}`,
-    );
+    dados.leitura = await perguntarSemContexto(`${PROMPT_LEITURA}\n\n${semLeitura}`);
   } catch (e) {
     console.error('[digest] leitura falhou, seguindo sem ela:', e);
+    return semLeitura;
   }
 
   return montarResumo(dados);
