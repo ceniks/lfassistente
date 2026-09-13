@@ -9,6 +9,7 @@
  */
 import { construirResumo, ontem } from '../digest/build.js';
 import { enviarTexto } from '../whatsapp/evolution.js';
+import { fecharConexoes } from '../data/mcp-client.js';
 import { exigir } from '../config.js';
 
 const args = process.argv.slice(2);
@@ -23,3 +24,9 @@ if (enviar) {
   await enviarTexto(exigir('OWNER_PHONE'), texto);
   console.log('enviado.');
 }
+
+// As conexões com os MCPs ficam abertas de propósito — o servidor as reaproveita
+// entre uma pergunta e outra. Numa CLI isso vira um processo que imprime tudo e
+// nunca termina, e quem estiver lendo pelo pipe não vê nada até matar na unha.
+await fecharConexoes();
+process.exit(0);

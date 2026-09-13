@@ -68,11 +68,33 @@ const schema = z.object({
   WABA_ID: opcional(z.string()),
 
   // --- Google Ads ---
-  GOOGLE_ADS_CUSTOMER_ID: opcional(z.string()),
-  GOOGLE_ADS_DEVELOPER_TOKEN: opcional(z.string()),
-  GOOGLE_ADS_REFRESH_TOKEN: opcional(z.string()),
+  /**
+   * ID da conta. Aceita com ou sem hífen: a interface do Google Ads mostra
+   * "834-963-5391" e a API exige "8349635391", então normalizamos aqui em vez
+   * de esperar que ninguém esqueça de tirar os traços ao copiar.
+   */
+  GOOGLE_ADS_CUSTOMER_ID: opcional(z.string().transform((v) => v.replace(/\D/g, ''))),
+  /**
+   * Só preencher se a conta estiver sob uma gerenciadora (MCC): é o ID dela.
+   * Fora desse caso, mandar o header atrapalha em vez de ajudar.
+   */
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID: opcional(z.string().transform((v) => v.replace(/\D/g, ''))),
   GOOGLE_ADS_CLIENT_ID: opcional(z.string()),
   GOOGLE_ADS_CLIENT_SECRET: opcional(z.string()),
+  /** Obtido uma vez com `npm run google-oauth`. Não expira. */
+  GOOGLE_ADS_REFRESH_TOKEN: opcional(z.string()),
+  /**
+   * O Google aposenta versões da API a cada poucos meses — a v22 saiu de
+   * circulação em setembro de 2026. Fica em variável para a troca ser um
+   * redeploy, não um commit.
+   */
+  GOOGLE_ADS_API_VERSION: z.string().default('v25'),
+  /**
+   * Descontinuado pelo Google em 09/09/2026: o acesso passou a ser gerenciado
+   * pela organização do Cloud e o header developer-token é ignorado. Fica aqui
+   * só para integrações antigas que ainda o enviam.
+   */
+  GOOGLE_ADS_DEVELOPER_TOKEN: opcional(z.string()),
 
   // --- Metas (Google Sheets via service account) ---
   GOOGLE_SERVICE_ACCOUNT_JSON: opcional(z.string()),

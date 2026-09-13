@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
 import { midiaDoDia } from '../data/meta.js';
+import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
 import { producaoAtual } from '../data/producao.js';
 import { atendimentoAtual } from '../data/atendimento.js';
@@ -95,9 +96,13 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const vendasPorData = await vendasPorDia(todosOsDias);
   const vendas = vendasPorData.get(dia)!;
 
-  const [trafego, midia, meta, medias, producao, atendimento] = await Promise.all([
+  const [trafego, midia, google, meta, medias, producao, atendimento] = await Promise.all([
     trafegoDoDia(dia),
     opcional('mídia', () => midiaDoDia(dia)),
+    // Sem credencial do Google o bloco sai como "não conectado" em vez de
+    // derrubar a mídia inteira — o Meta é que paga a conta, o Google é
+    // complemento.
+    opcional('google', () => (temGoogleAds() ? midiaGoogleDoDia(dia) : Promise.resolve(null))),
     opcional('metas', () => metaDoDia(dia)),
     media7d(dia, vendasPorData),
     opcional('produção', () => producaoAtual()),
@@ -112,7 +117,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     trafegoMedia7d: medias.trafego,
     meta,
     midia,
-    google: null,
+    google,
     fluxos: [],
     producao,
     atendimento,

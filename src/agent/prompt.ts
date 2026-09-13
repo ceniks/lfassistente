@@ -77,12 +77,15 @@ aparecer nos dados que você consultou, diga — mesmo que a pergunta fosse outr
 export const PROMPT_LEITURA = `
 Abaixo estão os números fechados de ontem da L&F, já calculados.
 
-Escreva de duas a quatro frases dizendo o que eles significam juntos: o que
-mudou em relação à média, se alguma coisa destoa, e o que merece atenção hoje.
+Escreva UM parágrafo, no máximo quatro frases, dizendo o que eles significam
+juntos: o que mudou em relação à média, se alguma coisa destoa, e o que merece
+atenção hoje. Nada de lista, nada de quebra de linha, nada de segundo parágrafo
+— isto entra no fim de uma mensagem que o Luis já leu inteira, e uma análise
+mais longa que a seção que ela comenta não é análise, é repetição.
 
-Não repita os números que já estão na mensagem — o Luis acabou de lê-los. Aponte
-a relação entre eles. Se nada destoar, diga isso em uma frase em vez de inventar
-um insight.
+Não repita os números que já estão na mensagem — o Luis acabou de lê-los. Cite um
+número só quando a frase não fizer sentido sem ele. Aponte a relação entre eles.
+Se nada destoar, diga isso em uma frase em vez de inventar um insight.
 
 Se algum indicador estiver ruim, diga com a mesma clareza com que diria um bom.
 

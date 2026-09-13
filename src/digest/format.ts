@@ -186,8 +186,9 @@ export function montarResumo(d: DadosResumo): string {
     );
 
     if (d.google) {
+      // Sem imposto, por definição: o valor da API do Google já é o cobrado.
       mid.push(
-        `Google pago ${dinheiro(d.google.valorPago)} · ROAS ${numero(d.google.roas, 2)}`,
+        `Google pago ${dinheiro(d.google.valorPago)} · ${dinheiro(d.google.receita)} em vendas · ROAS ${numero(d.google.roas, 2)}`,
       );
     } else {
       mid.push("Google: não conectado");
@@ -262,7 +263,7 @@ export function montarResumo(d: DadosResumo): string {
 
   // --- Leitura do agente ---
   if (d.leitura) {
-    b.push(["", "📌 O DIA EM UMA LINHA", d.leitura.trim()].join("\n"));
+    b.push(["", "📌 LEITURA DO DIA", d.leitura.trim()].join("\n"));
   }
 
   return b.join("\n");
