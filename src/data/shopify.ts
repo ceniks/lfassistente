@@ -1,4 +1,4 @@
-import { config } from '../config.js';
+import { config, exigir } from '../config.js';
 import { categoria, type PedidoClassificavel } from './classify.js';
 
 /* ------------------------------------------------------------------ *
@@ -6,14 +6,17 @@ import { categoria, type PedidoClassificavel } from './classify.js';
  * ------------------------------------------------------------------ */
 
 async function admin<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  const { SHOPIFY_SHOP, SHOPIFY_ADMIN_TOKEN, SHOPIFY_API_VERSION } = config();
+  const loja = exigir('SHOPIFY_SHOP');
+  const token = exigir('SHOPIFY_ADMIN_TOKEN');
+  const versao = config().SHOPIFY_API_VERSION;
+
   const res = await fetch(
-    `https://${SHOPIFY_SHOP}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+    `https://${loja}/admin/api/${versao}/graphql.json`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': SHOPIFY_ADMIN_TOKEN,
+        'X-Shopify-Access-Token': token,
       },
       body: JSON.stringify({ query, variables }),
     },

@@ -1,4 +1,4 @@
-import { config } from '../config.js';
+import { config, exigir } from '../config.js';
 
 const GRAPH = 'https://graph.facebook.com/v25.0';
 
@@ -33,9 +33,8 @@ async function insights(
   dia: string,
   extra: Record<string, string> = {},
 ): Promise<InsightRow | null> {
-  const { META_SYSTEM_TOKEN } = config();
   const params = new URLSearchParams({
-    access_token: META_SYSTEM_TOKEN,
+    access_token: exigir('META_SYSTEM_TOKEN'),
     time_range: JSON.stringify({ since: dia, until: dia }),
     fields: 'spend,purchase_roas,actions,cpm,cpc',
     level: 'account',
@@ -113,7 +112,7 @@ export async function midiaDoDia(dia: string): Promise<MidiaMeta> {
 
 /** CPM e CPC médios ponderados das campanhas com objetivo OUTCOME_SALES. */
 async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: number }> {
-  const { META_AD_ACCOUNT_IDS, META_SYSTEM_TOKEN } = config();
+  const { META_AD_ACCOUNT_IDS } = config();
 
   let impressoes = 0;
   let cliques = 0;
@@ -121,7 +120,7 @@ async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: num
 
   for (const conta of META_AD_ACCOUNT_IDS) {
     const params = new URLSearchParams({
-      access_token: META_SYSTEM_TOKEN,
+      access_token: exigir('META_SYSTEM_TOKEN'),
       time_range: JSON.stringify({ since: dia, until: dia }),
       fields: 'spend,impressions,clicks',
       level: 'campaign',
@@ -175,7 +174,7 @@ export async function fluxosDoDia(
   dia: string,
   templateIds: string[],
 ): Promise<FluxoTemplate[]> {
-  const { WABA_ID, META_SYSTEM_TOKEN } = config();
+  const { WABA_ID } = config();
   if (!WABA_ID || templateIds.length === 0) return [];
 
   const lotes: string[][] = [];
@@ -185,7 +184,7 @@ export async function fluxosDoDia(
 
   for (const lote of lotes) {
     const params = new URLSearchParams({
-      access_token: META_SYSTEM_TOKEN,
+      access_token: exigir('META_SYSTEM_TOKEN'),
       start: dia,
       end: dia,
       granularity: 'DAILY',

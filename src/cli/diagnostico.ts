@@ -23,6 +23,36 @@ const dia = process.argv[2] ?? ontem();
 const ok = (s: string) => `  ✓ ${s}`;
 const falha = (s: string) => `  ✗ ${s}`;
 
+/**
+ * Traduz o erro para o que fazer a respeito.
+ *
+ * `unauthorized` é o caso comum e o mais confuso: a URL está certa, a chave foi
+ * lida, e mesmo assim não passa. Quase sempre é secret criado no projeto errado
+ * — cada projeto Supabase tem o seu, e ter dois sistemas não significa ter os
+ * secrets nos dois.
+ */
+function explicar(erro: unknown, projeto: string): string[] {
+  const msg = erro instanceof Error ? erro.message : String(erro);
+  const linhas = [falha(msg)];
+
+  if (/unauthorized|401|403/i.test(msg)) {
+    linhas.push(
+      '',
+      '    A URL respondeu, então o servidor existe — a chave é que não foi aceita.',
+      '    Confira, nessa ordem:',
+      `      1. a Edge Function do projeto ${projeto} recebeu a verificação de API key?`,
+      `      2. o secret MCP_SERVER_KEY existe NESSE projeto? (cada projeto tem o seu)`,
+      '      3. o valor bate exatamente com o do .env, sem espaço no fim?',
+    );
+  } else if (/fetch failed|ENOTFOUND|ECONNREFUSED/i.test(msg)) {
+    linhas.push('', '    A URL não respondeu. Confira se o caminho da função está correto.');
+  } else if (/not found|404/i.test(msg)) {
+    linhas.push('', '    O caminho existe mas a função não. Confira o nome no fim da URL.');
+  }
+
+  return linhas;
+}
+
 function cabecalho(titulo: string) {
   console.log(`\n${'─'.repeat(60)}\n${titulo}\n${'─'.repeat(60)}`);
 }
@@ -79,7 +109,7 @@ async function testarCortePro() {
       );
     }
   } catch (e) {
-    console.log(falha(e instanceof Error ? e.message : String(e)));
+    console.log(explicar(e, 'do Corte Pro').join('\n'));
   }
 }
 
@@ -118,7 +148,7 @@ async function testarAtendePro() {
       }
     }
   } catch (e) {
-    console.log(falha(e instanceof Error ? e.message : String(e)));
+    console.log(explicar(e, 'do AtendePro').join('\n'));
   }
 }
 

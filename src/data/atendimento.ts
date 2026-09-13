@@ -21,7 +21,10 @@ function servidor() {
 }
 
 interface Agente {
+  /** Id do perfil. */
   id: string;
+  /** Id do usuário — é ESTE que as conversas referenciam em assigned_agent_id. */
+  user_id: string;
   display_name: string;
   active_conversations_count: number;
   distribution_percentage: number;
@@ -73,7 +76,14 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
     npsDosUltimosDias(srv, dia, 7),
   ]);
 
-  const nomePorId = new Map(agentes.profiles.map((a) => [a.id, a.display_name.trim()]));
+  // As conversas apontam para o `user_id`, não para o `id` do perfil — os dois
+  // existem e são diferentes. Indexamos pelos dois para não depender disso.
+  const nomePorId = new Map<string, string>();
+  for (const a of agentes.profiles) {
+    const nome = a.display_name.trim();
+    if (a.user_id) nomePorId.set(a.user_id, nome);
+    if (a.id) nomePorId.set(a.id, nome);
+  }
 
   const porAtendente = new Map<string, number>();
   const porCanal = new Map<string, number>();

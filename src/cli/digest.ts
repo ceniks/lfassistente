@@ -9,7 +9,7 @@
  */
 import { construirResumo, ontem } from '../digest/build.js';
 import { enviarTexto } from '../whatsapp/evolution.js';
-import { config } from '../config.js';
+import { exigir } from '../config.js';
 
 const args = process.argv.slice(2);
 const enviar = args.includes('--enviar');
@@ -20,6 +20,6 @@ console.log(texto);
 console.log(`\n---\n${texto.length} caracteres`);
 
 if (enviar) {
-  await enviarTexto(config().OWNER_PHONE, texto);
+  await enviarTexto(exigir('OWNER_PHONE'), texto);
   console.log('enviado.');
 }

@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { config, ownerJid } from '../config.js';
+import { config, ownerJid, exigir } from '../config.js';
 import { enviarTexto } from './evolution.js';
 import { perguntar } from '../agent/runner.js';
 
@@ -93,13 +93,13 @@ async function tratar(req: Request): Promise<void> {
 
   if (resposta.erro && !resposta.texto) {
     await enviarTexto(
-      config().OWNER_PHONE,
+      exigir('OWNER_PHONE'),
       `Não consegui responder agora: ${resposta.erro}`,
     );
     return;
   }
 
-  await enviarTexto(config().OWNER_PHONE, resposta.texto);
+  await enviarTexto(exigir('OWNER_PHONE'), resposta.texto);
 
   if (resposta.ferramentasUsadas.length) {
     console.log(`[webhook] usou: ${resposta.ferramentasUsadas.join(', ')}`);

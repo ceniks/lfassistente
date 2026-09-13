@@ -1,4 +1,4 @@
-import { config } from '../config.js';
+import { config, exigir } from '../config.js';
 
 /**
  * Cliente da Evolution API.
@@ -9,13 +9,11 @@ import { config } from '../config.js';
  */
 
 async function post<T>(rota: string, corpo: unknown): Promise<T> {
-  const { EVOLUTION_URL, EVOLUTION_API_KEY } = config();
-
-  const res = await fetch(`${EVOLUTION_URL}${rota}`, {
+  const res = await fetch(`${exigir('EVOLUTION_URL')}${rota}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      apikey: EVOLUTION_API_KEY,
+      apikey: exigir('EVOLUTION_API_KEY'),
     },
     body: JSON.stringify(corpo),
   });
@@ -31,10 +29,10 @@ async function post<T>(rota: string, corpo: unknown): Promise<T> {
 const LIMITE = 4000;
 
 export async function enviarTexto(numero: string, texto: string): Promise<void> {
-  const { EVOLUTION_INSTANCE } = config();
+  const instancia = exigir('EVOLUTION_INSTANCE');
 
   for (const parte of fatiar(texto, LIMITE)) {
-    await post(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+    await post(`/message/sendText/${instancia}`, {
       number: numero,
       text: parte,
       linkPreview: false,
@@ -47,9 +45,7 @@ export async function enviarDocumento(
   arquivo: { nome: string; base64: string; mimetype?: string },
   legenda?: string,
 ): Promise<void> {
-  const { EVOLUTION_INSTANCE } = config();
-
-  await post(`/message/sendMedia/${EVOLUTION_INSTANCE}`, {
+  await post(`/message/sendMedia/${exigir('EVOLUTION_INSTANCE')}`, {
     number: numero,
     mediatype: 'document',
     mimetype: arquivo.mimetype ?? 'application/pdf',
