@@ -16,9 +16,18 @@ perguntado e gera o detalhado em PDF sob demanda.
 | `src/whatsapp/evolution.ts` | Envio de texto e documento |
 | `src/whatsapp/webhook.ts` | Recebimento, com allowlist do número do dono |
 | `src/agent/` | Agent SDK, MCPs e as instruções do assistente |
+| `mcp/loja-server.ts` | Servidor MCP que expõe vendas, tráfego, mídia e comparativo ao agente |
 
 Falta ligar: Google Ads (esperando developer token), produção e atendimento via
 MCP próprio, worker de PDF, e o balanço financeiro (fase final).
+
+### Por que as regras vivem no código, não no prompt
+
+O servidor MCP devolve agregados, nunca payload cru — um dia de pedidos tem
+dezenas de milhares de tokens e a resposta a "quanto vendi hoje?" cabe em dez
+linhas. E as definições de faturamento e exclusão são determinísticas ali: se
+morassem só na instrução do modelo, uma resposta mais criativa num dia ruim
+mudaria o número.
 
 ## Ver a cara da mensagem sem credencial nenhuma
 

@@ -15,6 +15,6 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "mcp/**/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }
