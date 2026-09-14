@@ -1,6 +1,5 @@
 import { contasComProblema, type SaudeConta } from './data/meta.js';
-import { enviarTexto } from './whatsapp/evolution.js';
-import { exigir } from './config.js';
+import { enviarTextoAosDonos } from './whatsapp/evolution.js';
 import { dinheiro } from './digest/format.js';
 
 /**
@@ -59,8 +58,7 @@ export async function verificarContas(): Promise<void> {
     if (vistas.has(id)) continue;
     ultimoEstado.delete(id);
     ultimoAviso.delete(id);
-    await enviarTexto(
-      exigir('OWNER_PHONE'),
+    await enviarTextoAosDonos(
       `✅ Conta de anúncios normalizada\n\nEstava em "${estado}" e voltou a ficar ativa.`,
     ).catch(() => undefined);
   }
@@ -91,7 +89,7 @@ async function avisar(conta: SaudeConta): Promise<void> {
       : 'Ainda está veiculando, mas se a fatura não for liquidada a conta é suspensa.',
   );
 
-  await enviarTexto(exigir('OWNER_PHONE'), linhas.join('\n')).catch((e) =>
+  await enviarTextoAosDonos(linhas.join('\n')).catch((e) =>
     console.error('[vigia] não consegui avisar:', e),
   );
 }

@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { config, ownerJid, exigir } from '../config.js';
+import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento } from './evolution.js';
 import { perguntar } from '../agent/runner.js';
 import { gerarBoletim, pedidoDeBoletim } from '../relatorio/index.js';
@@ -11,9 +11,13 @@ import { gerarBoletim, pedidoDeBoletim } from '../relatorio/index.js';
  * defesa, em ordem de custo: allowlist de JID (uma comparação de string),
  * verificação da apikey, e TLS por cima — no Railway o TLS já vem pronto.
  *
- * A allowlist é a que mais importa. Se a mensagem não vier do número do Luis, o
- * agente nem é acordado, e ninguém consegue gastar token dele mandando mensagem
- * para o número do assistente.
+ * A allowlist é a que mais importa. Se a mensagem não vier de um dos números
+ * autorizados, o agente nem é acordado, e ninguém consegue gastar token
+ * mandando mensagem para o número do assistente.
+ *
+ * A resposta volta para quem perguntou, não para a lista inteira: duas pessoas
+ * conversando com o assistente não precisam ler as perguntas uma da outra. O
+ * que é broadcast — resumo das 8h, alerta do vigia — vai para todos.
  */
 
 interface EventoEvolution {
@@ -66,11 +70,16 @@ async function tratar(req: Request): Promise<void> {
   const key = evento.data?.key;
   if (!key?.remoteJid || key.fromMe) return;
 
-  // A allowlist: só o dono conversa com o assistente.
-  if (key.remoteJid !== ownerJid()) {
+  // A allowlist: só quem está no OWNER_PHONE conversa com o assistente.
+  if (!ehDono(key.remoteJid)) {
     console.warn(`[webhook] mensagem de ${key.remoteJid} ignorada (fora da allowlist)`);
     return;
   }
+
+  // Responder para o JID recebido, e não para o número configurado, também
+  // resolve o caso do nono dígito: devolvemos exatamente para onde a Evolution
+  // disse que a mensagem veio.
+  const quem = (key.remoteJid.split('@')[0] ?? '').split(':')[0] ?? '';
 
   if (key.id) {
     if (vistos.has(key.id)) return;
@@ -95,21 +104,18 @@ async function tratar(req: Request): Promise<void> {
   // e não erra; o que não casar aqui segue para a conversa normal.
   const pedido = pedidoDeBoletim(texto);
   if (pedido) {
-    await enviarBoletim(pedido.dia);
+    await enviarBoletim(quem, pedido.dia);
     return;
   }
 
   const resposta = await perguntar(texto);
 
   if (resposta.erro && !resposta.texto) {
-    await enviarTexto(
-      exigir('OWNER_PHONE'),
-      `Não consegui responder agora: ${resposta.erro}`,
-    );
+    await enviarTexto(quem, `Não consegui responder agora: ${resposta.erro}`);
     return;
   }
 
-  await enviarTexto(exigir('OWNER_PHONE'), resposta.texto);
+  await enviarTexto(quem, resposta.texto);
 
   if (resposta.ferramentasUsadas.length) {
     console.log(`[webhook] usou: ${resposta.ferramentasUsadas.join(', ')}`);
@@ -122,8 +128,7 @@ async function tratar(req: Request): Promise<void> {
  * O aviso antes de começar não é gentileza: são perto de dois minutos de
  * coleta, e sem ele o assistente fica mudo tempo demais para parecer vivo.
  */
-async function enviarBoletim(dia: string): Promise<void> {
-  const numero = exigir('OWNER_PHONE');
+async function enviarBoletim(numero: string, dia: string): Promise<void> {
   const dataBr = dia.split('-').reverse().join('/');
 
   await enviarTexto(numero, `📄 Montando o boletim completo de ${dataBr}. Leva cerca de um minuto.`);

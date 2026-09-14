@@ -8,9 +8,8 @@
  * --enviar para mandar de verdade no WhatsApp.
  */
 import { construirResumo, ontem } from '../digest/build.js';
-import { enviarTexto } from '../whatsapp/evolution.js';
+import { enviarTextoAosDonos } from '../whatsapp/evolution.js';
 import { fecharConexoes } from '../data/mcp-client.js';
-import { exigir } from '../config.js';
 
 const args = process.argv.slice(2);
 const enviar = args.includes('--enviar');
@@ -21,7 +20,7 @@ console.log(texto);
 console.log(`\n---\n${texto.length} caracteres`);
 
 if (enviar) {
-  await enviarTexto(exigir('OWNER_PHONE'), texto);
+  await enviarTextoAosDonos(texto);
   console.log('enviado.');
 }
 

@@ -27,9 +27,22 @@ const schema = z.object({
   EVOLUTION_URL: opcional(url()),
   EVOLUTION_API_KEY: opcional(z.string()),
   EVOLUTION_INSTANCE: opcional(z.string()),
-  /** Número que recebe o resumo e é o único autorizado a conversar. Ex: 5511999999999 */
+  /**
+   * Quem recebe o resumo e pode conversar com o assistente.
+   *
+   * Aceita mais de um número, separados por vírgula. O resumo das 8h e os
+   * alertas do vigia vão para todos; uma resposta de conversa volta só para
+   * quem perguntou.
+   *
+   * Ex: 5511999999999 ou 5511999999999,5511888888888
+   */
   OWNER_PHONE: opcional(
-    z.string().regex(/^\d{12,13}$/, 'use só dígitos, com DDI: 5511999999999'),
+    z
+      .string()
+      .regex(
+        /^\d{12,13}(\s*,\s*\d{12,13})*$/,
+        'use só dígitos, com DDI, separados por vírgula: 5511999999999,5511888888888',
+      ),
   ),
 
   // --- Claude ---
@@ -221,9 +234,52 @@ export function temMeta(): boolean {
   return Boolean(config().META_SYSTEM_TOKEN);
 }
 
-/** JID do dono, no formato que a Evolution usa. */
-export function ownerJid(): string {
-  const telefone = config().OWNER_PHONE;
-  if (!telefone) throw new Error('OWNER_PHONE não configurado');
-  return `${telefone}@s.whatsapp.net`;
+/** Os números autorizados, já separados e sem espaço. */
+export function donos(): string[] {
+  const bruto = config().OWNER_PHONE;
+  if (!bruto) throw new Error('OWNER_PHONE não configurado');
+  return bruto
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+/** JIDs no formato que a Evolution usa. */
+export function donosJids(): string[] {
+  return donos().map((n) => `${n}@s.whatsapp.net`);
+}
+
+/**
+ * As formas com e sem o nono dígito do mesmo celular brasileiro.
+ *
+ * Existe por causa de uma armadilha real: a Evolution devolve o JID no formato
+ * em que o WhatsApp registrou a conta, e contas antigas ainda aparecem sem o 9
+ * (551197937982) enquanto o dono digita o número com ele (5511997937982).
+ * Comparação literal deixaria o dono trancado do lado de fora do próprio
+ * assistente, e o sintoma seria mudo: mensagem ignorada, nenhum erro.
+ */
+function variantes(numero: string): string[] {
+  const d = numero.replace(/\D/g, '');
+  if (!d.startsWith('55') || d.length < 12) return [d];
+
+  const ddd = d.slice(2, 4);
+  const resto = d.slice(4);
+  const com9 = resto.length === 8 ? `9${resto}` : resto;
+  const sem9 = resto.length === 9 && resto.startsWith('9') ? resto.slice(1) : resto;
+
+  return [...new Set([`55${ddd}${com9}`, `55${ddd}${sem9}`])];
+}
+
+/**
+ * A allowlist: este JID é de alguém autorizado?
+ *
+ * O `split(':')` não é decorativo. Quando a mensagem vem de um aparelho
+ * secundário, o Baileys devolve `5511999999999:12@s.whatsapp.net`, e sem cortar
+ * o sufixo os dígitos do aparelho grudam no telefone — vira outro número, e o
+ * dono é silenciosamente ignorado ao responder do notebook em vez do celular.
+ */
+export function ehDono(jid: string): boolean {
+  const numero = (jid.split('@')[0] ?? '').split(':')[0] ?? '';
+  const doJid = new Set(variantes(numero));
+  return donos().some((d) => variantes(d).some((v) => doJid.has(v)));
 }

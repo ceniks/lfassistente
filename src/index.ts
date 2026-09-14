@@ -1,7 +1,7 @@
 import cron from 'node-cron';
-import { exigirConfigCompleta, exigir } from './config.js';
+import { exigirConfigCompleta } from './config.js';
 import { criarApp } from './whatsapp/webhook.js';
-import { enviarTexto } from './whatsapp/evolution.js';
+import { enviarTextoAosDonos } from './whatsapp/evolution.js';
 import { construirResumo, ontem } from './digest/build.js';
 import { verificarContas } from './vigia.js';
 
@@ -41,14 +41,13 @@ cron.schedule(
 
     try {
       const texto = await construirResumo(dia);
-      await enviarTexto(exigir('OWNER_PHONE'), texto);
+      await enviarTextoAosDonos(texto);
       console.log(`[digest] enviado (${texto.length} caracteres)`);
     } catch (e) {
       console.error('[digest] falhou:', e);
       // Silêncio às 8h é pior que uma mensagem de erro: sem aviso, o Luis
       // pensa que o dia foi fraco quando na verdade o resumo não rodou.
-      await enviarTexto(
-        exigir('OWNER_PHONE'),
+      await enviarTextoAosDonos(
         `⚠️ Não consegui montar o resumo de ${dia}.\n\n${e instanceof Error ? e.message : String(e)}`,
       ).catch(() => undefined);
     }

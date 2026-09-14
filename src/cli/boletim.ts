@@ -11,9 +11,8 @@
  */
 import { writeFile } from 'node:fs/promises';
 import { gerarBoletim } from '../relatorio/index.js';
-import { enviarDocumento } from '../whatsapp/evolution.js';
+import { enviarDocumentoAosDonos } from '../whatsapp/evolution.js';
 import { fecharConexoes } from '../data/mcp-client.js';
-import { exigir } from '../config.js';
 import { ontem } from '../digest/build.js';
 
 const args = process.argv.slice(2);
@@ -31,8 +30,7 @@ console.log(
 );
 
 if (enviar) {
-  await enviarDocumento(
-    exigir('OWNER_PHONE'),
+  await enviarDocumentoAosDonos(
     { nome: b.nome, base64: b.pdf.toString('base64') },
     b.legenda,
   );

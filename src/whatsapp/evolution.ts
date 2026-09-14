@@ -1,4 +1,4 @@
-import { config, exigir } from '../config.js';
+import { config, donos, exigir } from '../config.js';
 
 /**
  * Cliente da Evolution API.
@@ -53,6 +53,31 @@ export async function enviarDocumento(
     fileName: arquivo.nome,
     caption: legenda,
   });
+}
+
+/**
+ * Manda para todos os números autorizados.
+ *
+ * Em série e sem parar no primeiro erro: se um dos telefones estiver fora do ar,
+ * o outro ainda recebe o resumo. O erro vai para o log, não derruba o envio.
+ */
+export async function enviarTextoAosDonos(texto: string): Promise<void> {
+  for (const numero of donos()) {
+    await enviarTexto(numero, texto).catch((e) =>
+      console.error(`[evolution] não consegui enviar para ${numero}:`, e),
+    );
+  }
+}
+
+export async function enviarDocumentoAosDonos(
+  arquivo: { nome: string; base64: string; mimetype?: string },
+  legenda?: string,
+): Promise<void> {
+  for (const numero of donos()) {
+    await enviarDocumento(numero, arquivo, legenda).catch((e) =>
+      console.error(`[evolution] não consegui enviar ${arquivo.nome} para ${numero}:`, e),
+    );
+  }
 }
 
 /**
