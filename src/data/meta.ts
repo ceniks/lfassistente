@@ -264,6 +264,116 @@ export interface FluxoTemplate {
 }
 
 /**
+ * Token do WhatsApp, que não é o mesmo dos anúncios.
+ *
+ * O WhatsApp da L&F está no portfólio "L&F Alfaiataria" e os anúncios em outro.
+ * Token de usuário do sistema não atravessa portfólio, então são dois.
+ */
+function tokenWhatsapp(): string {
+  const c = config();
+  const t = c.META_WHATSAPP_TOKEN ?? c.META_SYSTEM_TOKEN;
+  if (!t) {
+    throw new Error(
+      'META_WHATSAPP_TOKEN não configurado. Gere um token de usuário do sistema no ' +
+        'portfólio dono do WhatsApp, com a permissão whatsapp_business_management.',
+    );
+  }
+  return t;
+}
+
+export interface Template {
+  id: string;
+  nome: string;
+  status: string;
+  categoria: string;
+}
+
+/** Templates de uma conta do WhatsApp. Serve para casar nome com id. */
+export async function templatesDaConta(waba: string): Promise<Template[]> {
+  const saida: Template[] = [];
+  let url: string | null =
+    `${GRAPH}/${waba}/message_templates?limit=200&fields=id,name,status,category` +
+    `&access_token=${tokenWhatsapp()}`;
+
+  while (url) {
+    const res: Response = await fetch(url);
+    if (!res.ok) throw new Error(`Meta ${res.status}: ${(await res.text()).slice(0, 300)}`);
+
+    const json = (await res.json()) as {
+      data?: Array<{ id: string; name: string; status: string; category: string }>;
+      paging?: { next?: string };
+    };
+
+    for (const t of json.data ?? []) {
+      saida.push({ id: t.id, nome: t.name, status: t.status, categoria: t.category });
+    }
+    url = json.paging?.next ?? null;
+  }
+
+  return saida;
+}
+
+/**
+ * Contas do WhatsApp que o token enxerga.
+ *
+ * Existe porque a L&F tem sete WABAs no portfólio e o nome não distingue — são
+ * quase todas "LF Fashion". Descobrir qual é a certa pelo painel é chute;
+ * descobrir pelos templates que ela hospeda é determinístico.
+ */
+export async function contasDeWhatsapp(): Promise<Array<{ id: string; nome: string }>> {
+  const token = tokenWhatsapp();
+  const saida: Array<{ id: string; nome: string }> = [];
+
+  // `/me/businesses` funciona para token de usuário PESSOA e devolve lista
+  // vazia — sem erro — para token de usuário do SISTEMA, que é o nosso caso.
+  // Um 200 com data vazia parece "não há nada" e na verdade é "pergunta
+  // errada". Por isso o META_BUSINESS_ID existe.
+  const negocios = await fetch(
+    `${GRAPH}/me/businesses?fields=id,name&limit=50&access_token=${token}`,
+  );
+
+  const js = negocios.ok
+    ? ((await negocios.json()) as { data?: Array<{ id: string; name: string }> })
+    : { data: [] };
+
+  let portfolios = js.data ?? [];
+
+  if (!portfolios.length) {
+    const id = config().META_BUSINESS_ID;
+    if (!id) {
+      throw new Error(
+        'nenhum portfólio visível para este token, e META_BUSINESS_ID não está configurado.\n' +
+          '  Token de usuário do sistema não aparece em /me/businesses — o ID precisa ser explícito.\n' +
+          '  Pegue na URL das Configurações do Business (business_id=...).',
+      );
+    }
+    const r = await fetch(`${GRAPH}/${id}?fields=id,name&access_token=${token}`);
+    if (!r.ok) {
+      throw new Error(
+        `não consegui ler o portfólio ${id} (${r.status}). ` +
+          'O token precisa de business_management e whatsapp_business_management.',
+      );
+    }
+    portfolios = [(await r.json()) as { id: string; name: string }];
+  }
+
+  for (const b of portfolios) {
+    for (const campo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      const r = await fetch(
+        `${GRAPH}/${b.id}/${campo}?fields=id,name&limit=50&access_token=${token}`,
+      );
+      if (!r.ok) continue;
+      const j = (await r.json()) as { data?: Array<{ id: string; name: string }> };
+      for (const w of j.data ?? []) {
+        if (!saida.some((x) => x.id === w.id)) saida.push({ id: w.id, nome: `${w.name} (${b.name})` });
+      }
+    }
+  }
+
+  return saida;
+}
+
+/**
  * Quantas mensagens de cada fluxo saíram no dia.
  *
  * A fonte é a Meta, não o AtendePro: a data do carrinho não é a data do envio.
@@ -285,18 +395,30 @@ export async function fluxosDoDia(
 
   const saida: FluxoTemplate[] = [];
 
+  // A janela é semiaberta: `start` entra, `end` não. Mandar o mesmo dia nos dois
+  // devolve 200 com todos os contadores zerados — silêncio que parece "não houve
+  // envio" e na verdade é "intervalo de duração zero".
+  const seguinte = new Date(`${dia}T12:00:00Z`);
+  seguinte.setUTCDate(seguinte.getUTCDate() + 1);
+  const fim = seguinte.toISOString().slice(0, 10);
+
   for (const lote of lotes) {
     const params = new URLSearchParams({
-      access_token: exigir('META_SYSTEM_TOKEN'),
+      access_token: tokenWhatsapp(),
       start: dia,
-      end: dia,
+      end: fim,
       granularity: 'DAILY',
       template_ids: JSON.stringify(lote),
       metric_types: JSON.stringify(['SENT', 'DELIVERED', 'READ']),
     });
 
     const res = await fetch(`${GRAPH}/${WABA_ID}/template_analytics?${params}`);
-    if (!res.ok) continue;
+    if (!res.ok) {
+      // Engolir o erro aqui faz um dia sem dados parecer um dia sem envio.
+      throw new Error(
+        `template_analytics ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      );
+    }
 
     const json = (await res.json()) as {
       data?: Array<{

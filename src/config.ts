@@ -66,6 +66,25 @@ const schema = z.object({
    */
   META_TAX_FACTOR: z.coerce.number().min(1).default(1.138304),
   WABA_ID: opcional(z.string()),
+  /**
+   * Token separado para o WhatsApp.
+   *
+   * Precisa existir porque o WhatsApp da L&F mora em outro portfólio (L&F
+   * Alfaiataria) que não é o dos anúncios. Um token de usuário do sistema só
+   * enxerga ativos do portfólio onde foi gerado — não há token que cubra os
+   * dois. Se ficar vazio, o código cai no META_SYSTEM_TOKEN, que funciona no
+   * caso de alguém um dia consolidar tudo num portfólio só.
+   */
+  META_WHATSAPP_TOKEN: opcional(z.string()),
+  /**
+   * ID do portfólio empresarial dono do WhatsApp.
+   *
+   * Necessário porque `/me/businesses` devolve lista vazia para token de
+   * usuário do sistema — o `/me` dele é o próprio usuário, não a pessoa que o
+   * criou, e ele não "pertence" a portfólio nenhum pela ótica dessa aresta. Sem
+   * o ID explícito não há como listar as contas do WhatsApp.
+   */
+  META_BUSINESS_ID: opcional(z.string()),
 
   // --- Google Ads ---
   /**
