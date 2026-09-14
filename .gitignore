@@ -11,3 +11,8 @@ coverage/
 
 # PDFs gerados pela CLI do boletim
 lf-boletim-*.pdf
+
+# Qualquer .env fica de fora: este repositório é público, e já houve arquivo
+# solto com token (troque.env, railway-vars.env) na pasta de trabalho.
+*.env
+!.env.example
