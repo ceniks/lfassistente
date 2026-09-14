@@ -8,3 +8,6 @@ dist/
 .idea/
 coverage/
 *.pdf
+
+# PDFs gerados pela CLI do boletim
+lf-boletim-*.pdf

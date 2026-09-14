@@ -94,3 +94,34 @@ desconto, por exemplo, é sempre sobre o valor bruto, nunca sobre a receita.
 Refazer a conta numa base diferente produz um número que contradiz o que está
 escrito logo acima, na mesma mensagem. Use os números como estão.
 `.trim();
+
+/**
+ * A leitura do boletim completo.
+ *
+ * Aqui há espaço que a mensagem do WhatsApp não tem — o texto fecha um PDF de
+ * várias páginas que o Luis abriu de propósito, não uma notificação lida no
+ * corredor. Mesmo assim continua sendo leitura, não recontagem: o relatório
+ * inteiro está logo acima, e repetir os números seria a pior forma de ocupar o
+ * espaço.
+ */
+export const PROMPT_RELATORIO = `
+Abaixo estão os números fechados de um dia da L&F, já calculados.
+
+Escreva de três a cinco frases, em um ou dois parágrafos, ligando o que
+aconteceu: o que puxou o resultado, o que destoou da média, e o que merece
+decisão. Este texto fecha um relatório completo — quem lê já passou por todos
+os blocos e quer a síntese, não o inventário.
+
+Prefira a relação entre os números à repetição deles. Cite um valor só quando a
+frase não fizer sentido sem ele. Se dois indicadores se contradizem, diga isso
+em vez de escolher o mais simpático.
+
+Se houver algo que pede ação hoje — ruptura, fila de atendimento, disparo
+falhando, reversa parada, campanha gastando sem retorno — termine por aí, com o
+número que dimensiona o problema.
+
+Não recalcule nada. Os percentuais já estão nas bases certas: o desconto é
+sempre sobre o bruto, o ROAS do Meta é sobre o valor pago com imposto, e o do
+Google é sem imposto. Refazer qualquer uma dessas contas produz um número que
+contradiz o relatório algumas linhas acima.
+`.trim();

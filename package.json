@@ -21,7 +21,8 @@
     "google-teste": "tsx --env-file-if-exists=.env src/cli/google-teste.ts",
     "tempos": "tsx --env-file-if-exists=.env src/cli/tempos.ts",
     "whatsapp-teste": "tsx --env-file-if-exists=.env src/cli/whatsapp-teste.ts",
-    "troque-teste": "tsx --env-file-if-exists=.env src/cli/troque-teste.ts"
+    "troque-teste": "tsx --env-file-if-exists=.env src/cli/troque-teste.ts",
+    "boletim": "tsx --env-file-if-exists=.env src/cli/boletim.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
@@ -29,12 +30,14 @@
     "express": "^5.1.0",
     "googleapis": "^144.0.0",
     "node-cron": "^3.0.3",
+    "pdfkit": "^0.20.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "@types/node-cron": "^3.0.11",
+    "@types/pdfkit": "^0.17.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

@@ -1,7 +1,8 @@
 import express, { type Request, type Response } from 'express';
 import { config, ownerJid, exigir } from '../config.js';
-import { enviarTexto } from './evolution.js';
+import { enviarTexto, enviarDocumento } from './evolution.js';
 import { perguntar } from '../agent/runner.js';
+import { gerarBoletim, pedidoDeBoletim } from '../relatorio/index.js';
 
 /**
  * Webhook da Evolution.
@@ -89,6 +90,15 @@ async function tratar(req: Request): Promise<void> {
 
   console.log(`[webhook] pergunta: ${texto.slice(0, 120)}`);
 
+  // Atalho antes do agente: "manda o boletim completo" chega toda semana e não
+  // precisa de modelo para ser entendido. Reconhecer por regex custa zero token
+  // e não erra; o que não casar aqui segue para a conversa normal.
+  const pedido = pedidoDeBoletim(texto);
+  if (pedido) {
+    await enviarBoletim(pedido.dia);
+    return;
+  }
+
   const resposta = await perguntar(texto);
 
   if (resposta.erro && !resposta.texto) {
@@ -103,5 +113,28 @@ async function tratar(req: Request): Promise<void> {
 
   if (resposta.ferramentasUsadas.length) {
     console.log(`[webhook] usou: ${resposta.ferramentasUsadas.join(', ')}`);
+  }
+}
+
+/**
+ * Gera e manda o PDF.
+ *
+ * O aviso antes de começar não é gentileza: são perto de dois minutos de
+ * coleta, e sem ele o assistente fica mudo tempo demais para parecer vivo.
+ */
+async function enviarBoletim(dia: string): Promise<void> {
+  const numero = exigir('OWNER_PHONE');
+  const dataBr = dia.split('-').reverse().join('/');
+
+  await enviarTexto(numero, `📄 Montando o boletim completo de ${dataBr}. Leva cerca de um minuto.`);
+
+  try {
+    const b = await gerarBoletim(dia);
+    await enviarDocumento(numero, { nome: b.nome, base64: b.pdf.toString('base64') }, b.legenda);
+    console.log(`[webhook] boletim de ${dia} enviado (${Math.round(b.pdf.length / 1024)} KB)`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[webhook] boletim falhou:', e);
+    await enviarTexto(numero, `Não consegui montar o boletim de ${dataBr}: ${msg.slice(0, 300)}`);
   }
 }
