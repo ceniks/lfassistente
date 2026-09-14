@@ -2,6 +2,7 @@ import type { ResumoVendas, Trafego } from "../data/shopify.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
 import type { Atendimento } from "../data/atendimento.js";
+import type { Reversas } from "../data/troque.js";
 
 /* ------------------------------------------------------------------ *
  * Formatadores
@@ -87,6 +88,7 @@ export interface DadosResumo {
   fluxos: FluxoTemplate[];
   producao?: Producao | null;
   atendimento?: Atendimento | null;
+  reversas?: Reversas | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -259,6 +261,36 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     b.push(fl.join("\n"));
+  }
+
+  // --- Trocas ---
+  if (d.reversas) {
+    const t = d.reversas;
+    const tr = ["", "🔄 TROCAS E DEVOLUÇÕES"];
+    tr.push(
+      `${numero(t.abertas)} abertas — ${t.aberturasPorTipo.troca} troca · ` +
+        `${t.aberturasPorTipo.estorno} estorno` +
+        (t.aberturasPorTipo.sem_reembolso ? ` · ${t.aberturasPorTipo.sem_reembolso} sem reembolso` : ""),
+    );
+    tr.push(
+      `${numero(t.concluidas)} ${t.concluidas === 1 ? "concluída" : "concluídas"} · ${numero(t.canceladas)} canceladas` +
+        (t.valorTroca > 0 ? ` · ${dinheiro(t.valorTroca)} em diferença` : ""),
+    );
+    if (t.valorEstorno > 0 || t.valorRetido > 0) {
+      tr.push(`Estornado ${dinheiro(t.valorEstorno)} · retido em crédito ${dinheiro(t.valorRetido)}`);
+    }
+    if (t.motivos.length) {
+      tr.push(`Motivo nº1: ${t.motivos[0].motivo} (${t.motivos[0].total})`);
+    }
+    // O passivo vem por último e com alerta porque é o que ninguém vê.
+    if (t.envelhecidas > 0) {
+      tr.push(
+        `⚠️ ${numero(t.envelhecidas)} abertas há +30 dias` +
+          (t.gargalo ? ` · maior fila: ${t.gargalo.status} (${numero(t.gargalo.total)})` : ""),
+      );
+    }
+    if (t.travadas > 0) tr.push(`${numero(t.travadas)} esperando a cliente postar há +7 dias`);
+    b.push(tr.join("\n"));
   }
 
   // --- Leitura do agente ---

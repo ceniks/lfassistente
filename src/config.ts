@@ -126,6 +126,15 @@ const schema = z.object({
   CORTEPRO_MCP_URL: opcional(url()),
   CORTEPRO_TOKEN: opcional(z.string()),
 
+  // --- Troquecommerce ---
+  /**
+   * Duas lojas, dois tokens: a migração para o Shopify foi em 08/04/2026 e as
+   * reversas de vendas anteriores ficaram na loja antiga (Nuvemshop). O resumo
+   * diário usa só a atual.
+   */
+  TROQUE_TOKEN: opcional(z.string()),
+  TROQUE_TOKEN_LEGADO: opcional(z.string()),
+
   // --- Runtime ---
   PORT: z.coerce.number().default(3000),
   TZ: z.string().default('America/Sao_Paulo'),

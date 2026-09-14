@@ -5,6 +5,7 @@ import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
 import { producaoAtual } from '../data/producao.js';
 import { atendimentoAtual } from '../data/atendimento.js';
+import { reversasDoDia, temTroque } from '../data/troque.js';
 import { montarResumo, type DadosResumo } from './format.js';
 import { perguntarSemContexto } from '../agent/runner.js';
 import { PROMPT_LEITURA } from '../agent/prompt.js';
@@ -96,7 +97,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const vendasPorData = await vendasPorDia(todosOsDias);
   const vendas = vendasPorData.get(dia)!;
 
-  const [trafego, midia, google, meta, medias, producao, atendimento] = await Promise.all([
+  const [trafego, midia, google, meta, medias, producao, atendimento, reversas] = await Promise.all([
     trafegoDoDia(dia),
     opcional('mídia', () => midiaDoDia(dia)),
     // Sem credencial do Google o bloco sai como "não conectado" em vez de
@@ -107,6 +108,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     media7d(dia, vendasPorData),
     opcional('produção', () => producaoAtual()),
     opcional('atendimento', () => atendimentoAtual(dia)),
+    opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
   ]);
 
   const dados: DadosResumo = {
@@ -121,6 +123,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     fluxos: [],
     producao,
     atendimento,
+    reversas,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.
