@@ -120,6 +120,21 @@ export interface CorteAberto {
  */
 const ETAPAS_ANTES_DO_GALPAO = ['em_corte', 'na_oficina', 'caseado'] as const;
 
+/**
+ * Antes disto o campo "subiu no site" não era preenchido — o controle começou
+ * no corte 410 (CRT-025), de 30/03/2026. Em corte mais antigo o campo vazio
+ * não quer dizer que a peça não subiu, só que ninguém marcava. Contar esses
+ * como reposição inflaria o número com peça que já está na Shopify há meses,
+ * então corte iniciado antes desta data fica de fora.
+ */
+const INICIO_DO_CONTROLE = '2026-03-30';
+
+/** Datas do Corte Pro vêm em dd/mm/aaaa; comparar em aaaa-mm-dd é o que ordena. */
+function emIso(br: string): string {
+  const [d, m, a] = br.split('/');
+  return `${a}-${m}-${d}`;
+}
+
 // "• CRT-027 — Casaco  Londres ref:95 (Casaco) | No galpão | 826 pç | resp. Maria | início 22/05/2026 | saiu da oficina 11/08/2026"
 const LINHA_DE_CORTE =
   /•\s*([\w-]+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})(?:.*?saiu da oficina\s*(\d{2}\/\d{2}\/\d{4}))?/g;
@@ -188,7 +203,7 @@ export async function cortesAbertos(
     cortesDaEtapa(srv, 'no_galpao'),
   ]);
 
-  const candidatos = galpao.filter(querido);
+  const candidatos = galpao.filter((c) => querido(c) && emIso(c.inicio) >= INICIO_DO_CONTROLE);
   const prontas: CorteAberto[] = [];
 
   // Em lotes: o Corte Pro devolve um corte por chamada e o boletim não pode
