@@ -41,7 +41,15 @@ export function criarApp() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
-  app.get('/health', (_req, res) => res.json({ ok: true }));
+  // Devolve o commit que está no ar. Sem isso, "o deploy já subiu?" só se
+  // responde pelo painel do Railway — e a resposta some quando a aba fecha.
+  app.get('/health', (_req, res) =>
+    res.json({
+      ok: true,
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
+      subidoEm: process.env.RAILWAY_DEPLOYMENT_CREATED_AT ?? null,
+    }),
+  );
 
   app.post('/wa/webhook', async (req: Request, res: Response) => {
     // Responde imediatamente: a Evolution não deve esperar o agente pensar.

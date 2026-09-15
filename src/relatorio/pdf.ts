@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import type { DadosRelatorio } from './dados.js';
 import { dinheiro, dinheiroExato, pct, numero, variacao, dataPorExtenso } from '../digest/format.js';
+import { reposicao } from '../data/cobertura.js';
 
 /**
  * O boletim completo em PDF.
@@ -406,21 +407,21 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
 
   tabela(
     doc,
-    ['Peça', 'Vendidas', 'Média/dia', 'Estoque', 'Cobertura', 'Em produção'],
+    ['Peça', 'Vendidas', 'Média/dia', 'Estoque', 'Cobertura', 'Reposição'],
     cob.map((c) => [
       c.titulo,
       numero(c.vendidasNoDia),
       numero(c.mediaDiaria, 1),
       c.estoque === null ? '—' : numero(c.estoque),
       c.diasDeCobertura === null ? '—' : `${numero(c.diasDeCobertura, 1)} d`,
-      c.emProducao > 0 ? numero(c.emProducao) : '—',
+      reposicao(c) > 0 ? numero(reposicao(c)) : '—',
     ]),
     [LARGURA - 350, 65, 70, 70, 70, 75],
     ['left', 'right', 'right', 'right', 'right', 'right'],
   );
 
   const criticos = cob.filter((c) => c.diasDeCobertura !== null && c.diasDeCobertura <= 14);
-  const semReposicao = criticos.filter((c) => c.emProducao === 0);
+  const semReposicao = criticos.filter((c) => reposicao(c) === 0);
 
   if (criticos.length) {
     linha(
@@ -428,18 +429,33 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
       'Abaixo de 14 dias de cobertura',
       numero(criticos.length),
       semReposicao.length
-        ? `${numero(semReposicao.length)} sem nenhum corte aberto: ${semReposicao.map((c) => c.titulo).join(', ')}`
-        : 'todos com reposição em produção',
+        ? `${numero(semReposicao.length)} sem nenhuma reposição: ${semReposicao.map((c) => c.titulo).join(', ')}`
+        : 'todos com reposição a caminho',
+      RUIM,
+    );
+  }
+
+  // Peça pronta no galpão sem entrada no site é venda parada por digitação,
+  // não por falta de produção. Merece linha própria: é a correção mais barata
+  // do relatório inteiro.
+  const paradas = cob.filter((c) => c.prontasNoGalpao > 0);
+  if (paradas.length) {
+    linha(
+      doc,
+      'Prontas no galpão sem subir no site',
+      numero(paradas.reduce((t, c) => t + c.prontasNoGalpao, 0)),
+      paradas.map((c) => `${c.titulo} (${numero(c.prontasNoGalpao)})`).join(', '),
       RUIM,
     );
   }
 
   paragrafo(
     doc,
-    'Cobertura é o estoque dividido pela média diária das últimas duas semanas. "Em produção" soma ' +
-      'as peças em corte, oficina e caseado — o que está no galpão já foi contado pela Shopify e ' +
-      'somar de novo daria falsa folga. Campeão sem corte aberto e com poucos dias de cobertura é ' +
-      'ruptura marcada: entre cortar e repor não dá para recuperar a venda.',
+    'Cobertura é só o estoque da Shopify dividido pela média diária das últimas duas semanas — ' +
+      'peça que ainda não está no site não vende hoje. "Reposição" é o que ainda vai virar estoque: ' +
+      'o que está em corte, oficina e caseado mais os cortes já no galpão cujo campo "subiu no site" ' +
+      'continua vazio no Corte Pro. Campeão com poucos dias de cobertura e sem reposição é ruptura ' +
+      'marcada: entre cortar e repor não dá para recuperar a venda.',
     TINTA3,
   );
 }

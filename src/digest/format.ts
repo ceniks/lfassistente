@@ -1,5 +1,5 @@
 import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
-import type { Cobertura } from "../data/cobertura.js";
+import { reposicao, type Cobertura } from "../data/cobertura.js";
 import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
@@ -234,9 +234,12 @@ export function montarResumo(d: DadosResumo): string {
         const dias = numero(c.diasDeCobertura ?? 0, 1);
         est.push(
           `⚠️ ${c.titulo} — ${numero(c.estoque ?? 0)} peças, ${dias} dias` +
-            (c.emProducao > 0
-              ? ` · ${numero(c.emProducao)} em produção`
-              : " · nada em produção"),
+            (reposicao(c) > 0
+              ? ` · ${numero(reposicao(c))} de reposição` +
+                (c.prontasNoGalpao > 0
+                  ? ` (${numero(c.prontasNoGalpao)} prontas no galpão, sem subir no site)`
+                  : "")
+              : " · nada de reposição"),
         );
       }
     } else {

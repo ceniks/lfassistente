@@ -17,8 +17,10 @@ export interface Cobertura {
   estoque: number | null;
   /** Estoque ÷ média diária. `null` quando não há estoque conhecido. */
   diasDeCobertura: number | null;
-  /** Peças em corte, oficina ou caseado — reposição a caminho. */
+  /** Peças em corte, oficina ou caseado — ainda sendo feitas. */
   emProducao: number;
+  /** Peças prontas no galpão que ainda não subiram no site. */
+  prontasNoGalpao: number;
   /** Data de início do corte mais antigo ainda aberto desse produto. */
   corteMaisAntigo?: string;
 }
@@ -43,6 +45,11 @@ function chaveDeProduto(nome: string): string {
     .trim();
 }
 
+/** Tudo que ainda pode virar estoque: o que está sendo feito mais o que só falta subir. */
+export function reposicao(c: Cobertura): number {
+  return c.emProducao + c.prontasNoGalpao;
+}
+
 export async function coberturaDosCampeoes(
   vendas: ResumoVendas,
   unidadesPorProduto: Map<string, UnidadesDeProduto>,
@@ -50,6 +57,8 @@ export async function coberturaDosCampeoes(
 ): Promise<Cobertura[]> {
   const campeoes = vendas.topProdutos;
   if (!campeoes.length) return [];
+
+  const chavesDosCampeoes = new Set(campeoes.map((p) => chaveDeProduto(p.titulo)));
 
   const ids = campeoes
     .map((p) => unidadesPorProduto.get(p.titulo)?.produtoId)
@@ -59,14 +68,20 @@ export async function coberturaDosCampeoes(
   // reposição vindo". Falhar aqui derrubaria o bloco inteiro por um extra.
   const [estoque, cortes] = await Promise.all([
     estoqueDeProdutos(ids),
-    cortesAbertos().catch(() => [] as CorteAberto[]),
+    cortesAbertos((produto) => chavesDosCampeoes.has(chaveDeProduto(produto))).catch(
+      () => [] as CorteAberto[],
+    ),
   ]);
 
-  const producaoPorProduto = new Map<string, { pecas: number; maisAntigo?: string }>();
+  const producaoPorProduto = new Map<
+    string,
+    { pecas: number; prontas: number; maisAntigo?: string }
+  >();
   for (const c of cortes) {
     const k = chaveDeProduto(c.produto);
-    const atual = producaoPorProduto.get(k) ?? { pecas: 0 };
-    atual.pecas += c.pecas;
+    const atual = producaoPorProduto.get(k) ?? { pecas: 0, prontas: 0 };
+    if (c.prontaNoGalpao) atual.prontas += c.pecas;
+    else atual.pecas += c.pecas;
     // As datas vêm em dd/mm/aaaa; comparar por tempo evita ordenar texto.
     const emMs = (br: string) => {
       const [d, m, a] = br.split('/');
@@ -89,6 +104,7 @@ export async function coberturaDosCampeoes(
       estoque: est,
       diasDeCobertura: est !== null && media > 0 ? est / media : null,
       emProducao: prod?.pecas ?? 0,
+      prontasNoGalpao: prod?.prontas ?? 0,
       corteMaisAntigo: prod?.maisAntigo,
     };
   });

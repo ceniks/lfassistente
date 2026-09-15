@@ -92,56 +92,117 @@ export async function estoqueTecidos(tecido?: string, cor?: string): Promise<str
   });
 }
 
-/** Um corte aberto na produção, para cruzar com a cobertura de estoque. */
+/** Um corte que ainda não virou estoque na Shopify. */
 export interface CorteAberto {
   codigo: string;
   produto: string;
   pecas: number;
   status: string;
   inicio: string;
+  /** Peça pronta no galpão, esperando só a entrada no site. */
+  prontaNoGalpao: boolean;
+  /** Dia em que saiu da oficina. Só existe para o que está no galpão. */
+  saiuDaOficina?: string;
 }
 
 /**
- * Os cortes que ainda vão virar peça no estoque.
+ * Os cortes que ainda vão virar peça no estoque da Shopify.
  *
- * Serve a uma pergunta só: quando o relatório disser que um campeão de venda
- * tem quatro dias de cobertura, existe reposição vindo? Sem isso a linha de
- * estoque assusta sem informar.
+ * O critério é o campo "subiu no site" do Corte Pro, não a etapa. Corte no
+ * galpão está dos dois lados: o 445 subiu no dia seguinte à retirada, o 491
+ * saiu da oficina em 10/09 e segue sem subir. Por isso o galpão entra na
+ * varredura e é conferido corte a corte. Antes do galpão — em corte, na
+ * oficina, caseado — a peça pronta ainda não existe e nunca está na Shopify,
+ * então não há o que conferir.
  *
- * Só etapas que ainda não entraram no estoque. "No galpão" fica de fora porque
- * já foi contado pela Shopify — somar as duas coisas contaria a mesma peça
- * duas vezes e daria falsa sensação de folga.
+ * `interessa` limita a conferência aos produtos que o relatório vai mostrar:
+ * cada corte do galpão custa uma chamada extra ao Corte Pro.
  */
-const ETAPAS_QUE_AINDA_VIRAM_ESTOQUE = ['em_corte', 'na_oficina', 'caseado'] as const;
+const ETAPAS_ANTES_DO_GALPAO = ['em_corte', 'na_oficina', 'caseado'] as const;
 
-export async function cortesAbertos(): Promise<CorteAberto[]> {
+// "• CRT-027 — Casaco  Londres ref:95 (Casaco) | No galpão | 826 pç | resp. Maria | início 22/05/2026 | saiu da oficina 11/08/2026"
+const LINHA_DE_CORTE =
+  /•\s*([\w-]+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})(?:.*?saiu da oficina\s*(\d{2}\/\d{2}\/\d{4}))?/g;
+
+type Servidor = { nome: string; url: string; token?: string };
+
+async function cortesDaEtapa(srv: Servidor, status: string): Promise<CorteAberto[]> {
+  let texto: string;
+  try {
+    texto = await chamarFerramenta(srv, 'listar_cortes', { status, limite: 200 });
+  } catch {
+    return [];
+  }
+
+  const saida: CorteAberto[] = [];
+  for (const m of texto.matchAll(LINHA_DE_CORTE)) {
+    saida.push({
+      codigo: m[1],
+      produto: m[2].trim(),
+      status: m[3].trim(),
+      pecas: Number(m[4]),
+      inicio: m[5],
+      prontaNoGalpao: status === 'no_galpao',
+      saiuDaOficina: m[6],
+    });
+  }
+  return saida;
+}
+
+/**
+ * Lê no detalhe do corte se o estoque já foi dado de entrada no site.
+ *
+ * `null` quando não deu para saber — chamada falhou ou o campo não veio.
+ */
+async function jaSubiuNoSite(srv: Servidor, codigo: string): Promise<boolean | null> {
+  let texto: string;
+  try {
+    texto = await chamarFerramenta(srv, 'buscar_corte', { busca: codigo });
+  } catch {
+    return null;
+  }
+
+  // A busca por código pode devolver mais de um corte; fica só o bloco do
+  // código pedido para não ler o campo do corte vizinho.
+  const blocos = texto.split(/\n-{3,}\n/);
+  const bloco =
+    blocos.find((b) => new RegExp(`^CORTE\\s+${codigo}\\b`, 'im').test(b.trim())) ?? blocos[0];
+
+  const m = bloco.match(/Estoque subido no sistema:\s*(.+)/i);
+  if (!m) return null;
+
+  const valor = m[1].trim().toLowerCase();
+  return valor !== 'não' && valor !== 'nao' && valor !== '—' && valor !== '-' && valor !== '';
+}
+
+export async function cortesAbertos(
+  interessa?: (produto: string) => boolean,
+): Promise<CorteAberto[]> {
   const srv = servidor();
   if (!srv) return [];
 
-  const saida: CorteAberto[] = [];
+  const querido = (c: CorteAberto) => (interessa ? interessa(c.produto) : true);
 
-  for (const status of ETAPAS_QUE_AINDA_VIRAM_ESTOQUE) {
-    let texto: string;
-    try {
-      texto = await chamarFerramenta(srv, 'listar_cortes', { status, limite: 200 });
-    } catch {
-      continue;
-    }
+  const [antesDoGalpao, galpao] = await Promise.all([
+    Promise.all(ETAPAS_ANTES_DO_GALPAO.map((s) => cortesDaEtapa(srv, s))),
+    cortesDaEtapa(srv, 'no_galpao'),
+  ]);
 
-    // "• 506 — Blazer filadelfia ref:97 (Blazer) | Na oficina | 1335 pç | resp. João | início 04/09/2026"
-    const linhas = texto.matchAll(
-      /•\s*(\d+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})/g,
-    );
-    for (const m of linhas) {
-      saida.push({
-        codigo: m[1],
-        produto: m[2].trim(),
-        status: m[3].trim(),
-        pecas: Number(m[4]),
-        inicio: m[5],
-      });
-    }
+  const candidatos = galpao.filter(querido);
+  const prontas: CorteAberto[] = [];
+
+  // Em lotes: o Corte Pro devolve um corte por chamada e o boletim não pode
+  // ficar minutos esperando.
+  for (let i = 0; i < candidatos.length; i += 5) {
+    const lote = candidatos.slice(i, i + 5);
+    const subiu = await Promise.all(lote.map((c) => jaSubiuNoSite(srv, c.codigo)));
+    lote.forEach((c, j) => {
+      // Na dúvida o corte fica de fora: contar peça que já está na Shopify
+      // infla a cobertura, e cobertura inflada é justamente o que esconde a
+      // ruptura que este bloco existe para antecipar.
+      if (subiu[j] === false) prontas.push(c);
+    });
   }
 
-  return saida;
+  return [...antesDoGalpao.flat().filter(querido), ...prontas];
 }
