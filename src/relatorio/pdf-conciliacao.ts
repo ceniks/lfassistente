@@ -159,9 +159,10 @@ export function gerarPdfConciliacao(c: Conciliacao): Promise<Buffer> {
     );
     paragrafo(
       doc,
-      'Diferença positiva significa que a Shopify devolveu mais do que a reversa registrou. ' +
-        'Várias destas batem exatamente com o preço de uma peça, o que aponta para estorno ' +
-        'ajustado na mão sem o mesmo ajuste do outro lado.',
+      'A comparação usa o Valor Pago do Troquecommerce, não o Valor Solicitado. Diferença positiva ' +
+        'significa que a Shopify devolveu mais do que o Troquecommerce registrou ter pago. ' +
+        'Quando a diferença bate com o preço de uma peça, costuma ser estorno ajustado na mão ' +
+        'sem o mesmo ajuste do outro lado.',
       TINTA3,
     );
   }
@@ -178,8 +179,15 @@ export function gerarPdfConciliacao(c: Conciliacao): Promise<Buffer> {
   titulo(doc, 'Como esta conferência é feita');
   paragrafo(
     doc,
-    'Só reversa FINALIZADA cobra saída na Shopify. O valor de estorno existe no Troquecommerce desde ' +
-      'a abertura da reversa: é o previsto, não o pago. Reversa em trânsito não deveria ter pago nada.',
+    'O valor comparado é o Valor Pago, não o Valor Solicitado. O Troquecommerce mostra os dois no ' +
+      'painel e a API chama o solicitado de refund_value; ele existe desde a abertura da reversa e ' +
+      'não muda quando o estorno sai por outro valor. O pago só aparece quando o pagamento é feito.',
+    TINTA2,
+  );
+  paragrafo(
+    doc,
+    'Só reversa FINALIZADA cobra saída na Shopify — reversa em trânsito não deveria ter pago nada. ' +
+      'Reversa finalizada sem nenhum pagamento registrado aparece como divergência, e não como zero.',
     TINTA2,
   );
   paragrafo(
