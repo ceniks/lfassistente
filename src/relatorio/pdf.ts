@@ -18,25 +18,25 @@ import { dinheiro, dinheiroExato, pct, numero, variacao, dataPorExtenso } from '
  * Paleta e medidas
  * ------------------------------------------------------------------ */
 
-const TINTA = '#1a1a1a';
-const TINTA2 = '#595959';
-const TINTA3 = '#8c8c8c';
-const LINHA = '#d9d9d9';
-const FUNDO = '#f5f5f5';
-const DESTAQUE = '#8c6d2f';
-const BOM = '#2f6b45';
-const RUIM = '#a33a3a';
+export const TINTA = '#1a1a1a';
+export const TINTA2 = '#595959';
+export const TINTA3 = '#8c8c8c';
+export const LINHA = '#d9d9d9';
+export const FUNDO = '#f5f5f5';
+export const DESTAQUE = '#8c6d2f';
+export const BOM = '#2f6b45';
+export const RUIM = '#a33a3a';
 
-const MARGEM = 44;
-const LARGURA = 595.28 - MARGEM * 2; // A4 retrato
+export const MARGEM = 44;
+export const LARGURA = 595.28 - MARGEM * 2; // A4 retrato
 
-type Doc = InstanceType<typeof PDFDocument>;
+export type Doc = InstanceType<typeof PDFDocument>;
 
 /* ------------------------------------------------------------------ *
  * Primitivas de desenho
  * ------------------------------------------------------------------ */
 
-function titulo(doc: Doc, texto: string) {
+export function titulo(doc: Doc, texto: string) {
   garantirEspaco(doc, 60);
   doc.moveDown(0.9);
   const y = doc.y;
@@ -52,7 +52,7 @@ function titulo(doc: Doc, texto: string) {
   doc.moveDown(0.7);
 }
 
-function paragrafo(doc: Doc, texto: string, cor = TINTA2) {
+export function paragrafo(doc: Doc, texto: string, cor = TINTA2) {
   doc.font('Helvetica').fontSize(9).fillColor(cor).text(texto, MARGEM, doc.y, {
     width: LARGURA,
     lineGap: 2,
@@ -60,7 +60,7 @@ function paragrafo(doc: Doc, texto: string, cor = TINTA2) {
 }
 
 /** Quebra a página quando o que vem não cabe, para não cortar bloco no meio. */
-function garantirEspaco(doc: Doc, altura: number) {
+export function garantirEspaco(doc: Doc, altura: number) {
   if (doc.y + altura > doc.page.height - MARGEM - 24) doc.addPage();
 }
 
@@ -70,7 +70,7 @@ function garantirEspaco(doc: Doc, altura: number) {
  * Números em coluna só se comparam se terminarem no mesmo lugar; alinhados à
  * esquerda, o olho tem que reler cada um.
  */
-function linha(doc: Doc, rotulo: string, valor: string, nota?: string, corValor = TINTA) {
+export function linha(doc: Doc, rotulo: string, valor: string, nota?: string, corValor = TINTA) {
   garantirEspaco(doc, 16);
   const y = doc.y;
   doc.font('Helvetica').fontSize(9).fillColor(TINTA2).text(rotulo, MARGEM, y, { width: 200 });
@@ -106,7 +106,7 @@ function corDaVariacao(v: string): string {
  * acontece antes de desenhar, medindo a string de verdade — nome de campanha da
  * L&F chega a oitenta caracteres com colchetes.
  */
-function cortar(doc: Doc, texto: string, largura: number, fonte: string, tamanho: number): string {
+export function cortar(doc: Doc, texto: string, largura: number, fonte: string, tamanho: number): string {
   doc.font(fonte).fontSize(tamanho);
   if (doc.widthOfString(texto) <= largura) return texto;
 
@@ -117,7 +117,7 @@ function cortar(doc: Doc, texto: string, largura: number, fonte: string, tamanho
   return corte.trimEnd() + '...';
 }
 
-function tabela(
+export function tabela(
   doc: Doc,
   cabecalho: string[],
   linhas: string[][],
@@ -773,7 +773,7 @@ function secaoLeitura(doc: Doc, d: DadosRelatorio) {
   });
 }
 
-function rodape(doc: Doc) {
+export function rodape(doc: Doc, rotulo = 'boletim completo') {
   const total = doc.bufferedPageRange().count;
   for (let i = 0; i < total; i++) {
     doc.switchToPage(i);
@@ -786,7 +786,7 @@ function rodape(doc: Doc) {
       .fontSize(7.5)
       .fillColor(TINTA3)
       .text(
-        `L&F · boletim completo · página ${i + 1} de ${total}`,
+        `L&F · ${rotulo} · página ${i + 1} de ${total}`,
         MARGEM,
         doc.page.height - MARGEM + 6,
         { width: LARGURA, align: 'center' },
