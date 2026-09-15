@@ -1,4 +1,4 @@
-import { vendasPorDia, trafegoDoDia, type ResumoVendas, type Trafego } from '../data/shopify.js';
+import { periodoDeVendas, trafegoDoDia, type ResumoVendas, type Trafego } from '../data/shopify.js';
 import { midiaDoDia, desempenhoPorNivel, type MidiaMeta, type LinhaMidia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds, type MidiaGoogle } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
@@ -6,6 +6,8 @@ import { producaoAtual, type Producao } from '../data/producao.js';
 import { atendimentoAtual, type Atendimento } from '../data/atendimento.js';
 import { reversasDoDia, temTroque, type Reversas } from '../data/troque.js';
 import { conferirEstorno, type Conciliacao } from '../data/conciliacao.js';
+import { novosVsRecorrentes, type NovosVsRecorrentes } from '../data/shopify.js';
+import { coberturaDosCampeoes, type Cobertura } from '../data/cobertura.js';
 
 /**
  * O material do boletim completo.
@@ -48,6 +50,8 @@ export interface DadosRelatorio {
   atendimento: Atendimento | null;
   reversas: Reversas | null;
   estornos: Conciliacao | null;
+  clientes: NovosVsRecorrentes | null;
+  cobertura: Cobertura[] | null;
   leitura?: string;
 }
 
@@ -74,7 +78,8 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
   // Uma busca só cobre os 15 dias. Ver o comentário em `vendasPorDia`: pedir dia
   // a dia multiplicaria as chamadas e estouraria o balde da Shopify.
   const janela = [dia, ...diasAntes(dia, DIAS_DE_SERIE)];
-  const vendasPorData = await vendasPorDia(janela);
+  const periodo = await periodoDeVendas(janela);
+  const vendasPorData = periodo.porDia;
   const vendas = vendasPorData.get(dia)!;
 
   const serie: PontoSerie[] = janela
@@ -111,6 +116,8 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     atendimento,
     reversas,
     estornos,
+    clientes,
+    cobertura,
   ] = await Promise.all([
       trafegoDoDia(dia),
       Promise.all(seteDias.map((d) => trafegoDoDia(d))),
@@ -122,6 +129,14 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       opcional('atendimento', () => atendimentoAtual(dia)),
       opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
       opcional('estornos', () => conferirEstorno(dia, dia)),
+      opcional('clientes', () => novosVsRecorrentes(dia)),
+      opcional('cobertura', () =>
+        coberturaDosCampeoes(
+          vendasPorData.get(dia)!,
+          periodo.unidadesPorProduto,
+          periodo.diasComVenda,
+        ),
+      ),
     ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
@@ -155,5 +170,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     atendimento,
     reversas,
     estornos,
+    clientes,
+    cobertura,
   };
 }

@@ -370,6 +370,80 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
   }
 }
 
+function secaoClientes(doc: Doc, d: DadosRelatorio) {
+  const c = d.clientes;
+  if (!c) return;
+  const comCliente = c.pedidosNovos + c.pedidosRecorrentes;
+  if (!comCliente) return;
+
+  const receita = c.receitaNovos + c.receitaRecorrentes;
+  linha(
+    doc,
+    'Clientes novos',
+    `${pct(c.pedidosNovos / comCliente)}`,
+    `${numero(c.pedidosNovos)} pedidos · ${dinheiro(c.receitaNovos)}`,
+  );
+  linha(
+    doc,
+    'Recompra',
+    `${pct(c.pedidosRecorrentes / comCliente)}`,
+    `${numero(c.pedidosRecorrentes)} pedidos · ${dinheiro(c.receitaRecorrentes)}` +
+      (receita > 0 ? ` · ${pct(c.receitaRecorrentes / receita)} da receita` : ''),
+  );
+  if (c.semCliente > 0) {
+    paragrafo(
+      doc,
+      `${numero(c.semCliente)} pedido(s) sem cliente identificado ficaram fora dessa divisão.`,
+      TINTA3,
+    );
+  }
+}
+
+function secaoEstoque(doc: Doc, d: DadosRelatorio) {
+  const cob = d.cobertura;
+  if (!cob?.length) return;
+  titulo(doc, 'Estoque dos campeões');
+
+  tabela(
+    doc,
+    ['Peça', 'Vendidas', 'Média/dia', 'Estoque', 'Cobertura', 'Em produção'],
+    cob.map((c) => [
+      c.titulo,
+      numero(c.vendidasNoDia),
+      numero(c.mediaDiaria, 1),
+      c.estoque === null ? '—' : numero(c.estoque),
+      c.diasDeCobertura === null ? '—' : `${numero(c.diasDeCobertura, 1)} d`,
+      c.emProducao > 0 ? numero(c.emProducao) : '—',
+    ]),
+    [LARGURA - 350, 65, 70, 70, 70, 75],
+    ['left', 'right', 'right', 'right', 'right', 'right'],
+  );
+
+  const criticos = cob.filter((c) => c.diasDeCobertura !== null && c.diasDeCobertura <= 14);
+  const semReposicao = criticos.filter((c) => c.emProducao === 0);
+
+  if (criticos.length) {
+    linha(
+      doc,
+      'Abaixo de 14 dias de cobertura',
+      numero(criticos.length),
+      semReposicao.length
+        ? `${numero(semReposicao.length)} sem nenhum corte aberto: ${semReposicao.map((c) => c.titulo).join(', ')}`
+        : 'todos com reposição em produção',
+      RUIM,
+    );
+  }
+
+  paragrafo(
+    doc,
+    'Cobertura é o estoque dividido pela média diária das últimas duas semanas. "Em produção" soma ' +
+      'as peças em corte, oficina e caseado — o que está no galpão já foi contado pela Shopify e ' +
+      'somar de novo daria falsa folga. Campeão sem corte aberto e com poucos dias de cobertura é ' +
+      'ruptura marcada: entre cortar e repor não dá para recuperar a venda.',
+    TINTA3,
+  );
+}
+
 function secaoDesconto(doc: Doc, d: DadosRelatorio) {
   const v = d.vendas;
   const bruto = v.receita + v.desconto.total;
@@ -814,8 +888,10 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     indicadores(doc, d);
     grafico(doc, d);
     secaoVendas(doc, d);
+    secaoClientes(doc, d);
     secaoDesconto(doc, d);
     secaoProdutos(doc, d);
+    secaoEstoque(doc, d);
     secaoCategorias(doc, d);
     secaoTrafego(doc, d);
     secaoMidia(doc, d);

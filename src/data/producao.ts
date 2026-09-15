@@ -91,3 +91,57 @@ export async function estoqueTecidos(tecido?: string, cor?: string): Promise<str
     cor: cor ?? null,
   });
 }
+
+/** Um corte aberto na produção, para cruzar com a cobertura de estoque. */
+export interface CorteAberto {
+  codigo: string;
+  produto: string;
+  pecas: number;
+  status: string;
+  inicio: string;
+}
+
+/**
+ * Os cortes que ainda vão virar peça no estoque.
+ *
+ * Serve a uma pergunta só: quando o relatório disser que um campeão de venda
+ * tem quatro dias de cobertura, existe reposição vindo? Sem isso a linha de
+ * estoque assusta sem informar.
+ *
+ * Só etapas que ainda não entraram no estoque. "No galpão" fica de fora porque
+ * já foi contado pela Shopify — somar as duas coisas contaria a mesma peça
+ * duas vezes e daria falsa sensação de folga.
+ */
+const ETAPAS_QUE_AINDA_VIRAM_ESTOQUE = ['em_corte', 'na_oficina', 'caseado'] as const;
+
+export async function cortesAbertos(): Promise<CorteAberto[]> {
+  const srv = servidor();
+  if (!srv) return [];
+
+  const saida: CorteAberto[] = [];
+
+  for (const status of ETAPAS_QUE_AINDA_VIRAM_ESTOQUE) {
+    let texto: string;
+    try {
+      texto = await chamarFerramenta(srv, 'listar_cortes', { status, limite: 200 });
+    } catch {
+      continue;
+    }
+
+    // "• 506 — Blazer filadelfia ref:97 (Blazer) | Na oficina | 1335 pç | resp. João | início 04/09/2026"
+    const linhas = texto.matchAll(
+      /•\s*(\d+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})/g,
+    );
+    for (const m of linhas) {
+      saida.push({
+        codigo: m[1],
+        produto: m[2].trim(),
+        status: m[3].trim(),
+        pecas: Number(m[4]),
+        inicio: m[5],
+      });
+    }
+  }
+
+  return saida;
+}

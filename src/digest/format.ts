@@ -1,4 +1,5 @@
-import type { ResumoVendas, Trafego } from "../data/shopify.js";
+import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
+import type { Cobertura } from "../data/cobertura.js";
 import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
@@ -91,6 +92,8 @@ export interface DadosResumo {
   atendimento?: Atendimento | null;
   reversas?: Reversas | null;
   estornos?: Conciliacao | null;
+  clientes?: NovosVsRecorrentes | null;
+  cobertura?: Cobertura[] | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -125,6 +128,18 @@ export function montarResumo(d: DadosResumo): string {
   linhas.push(
     `Ticket ${dinheiro(v.ticketMedio)} (7d: ${dinheiro(d.vendasMedia7d.ticketMedio)})`,
   );
+
+  if (d.clientes) {
+    const c = d.clientes;
+    const comCliente = c.pedidosNovos + c.pedidosRecorrentes;
+    if (comCliente > 0) {
+      const receita = c.receitaNovos + c.receitaRecorrentes;
+      linhas.push(
+        `Novos ${pct(c.pedidosNovos / comCliente)} · recompra ${pct(c.pedidosRecorrentes / comCliente)} ` +
+          `(receita: ${pct(receita > 0 ? c.receitaRecorrentes / receita : 0)} de recompra)`,
+      );
+    }
+  }
 
   if (v.excluidos.trocas || v.excluidos.influencers) {
     const fora: string[] = [];
@@ -202,6 +217,32 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     b.push(cat.join("\n"));
+  }
+
+  // --- Estoque dos campeões ---
+  // Só os apertados entram no resumo do WhatsApp. Listar os dez com cobertura
+  // confortável ocuparia meia tela para dizer "está tudo bem" — no PDF cabem
+  // todos, aqui cabe o que exige ação.
+  if (d.cobertura?.length) {
+    const apertados = d.cobertura
+      .filter((c) => c.diasDeCobertura !== null && c.diasDeCobertura <= 14)
+      .sort((a, b) => (a.diasDeCobertura ?? 0) - (b.diasDeCobertura ?? 0));
+
+    const est = ["", "📦 ESTOQUE DOS CAMPEÕES"];
+    if (apertados.length) {
+      for (const c of apertados) {
+        const dias = numero(c.diasDeCobertura ?? 0, 1);
+        est.push(
+          `⚠️ ${c.titulo} — ${numero(c.estoque ?? 0)} peças, ${dias} dias` +
+            (c.emProducao > 0
+              ? ` · ${numero(c.emProducao)} em produção`
+              : " · nada em produção"),
+        );
+      }
+    } else {
+      est.push("Nenhum campeão abaixo de 14 dias de cobertura");
+    }
+    b.push(est.join("\n"));
   }
 
   // --- Tráfego ---

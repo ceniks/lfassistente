@@ -160,6 +160,7 @@ interface OrderNode extends PedidoClassificavel {
       title: string;
       quantity: number;
       variant?: { price?: string | null } | null;
+      product?: { id?: string | null } | null;
       discountAllocations?: Array<{
         allocatedAmountSet: { shopMoney: { amount: string } };
         discountApplication?: { __typename?: string; code?: string | null } | null;
@@ -244,6 +245,7 @@ const ORDERS_QUERY = `
             title
             quantity
             variant { price }
+            product { id }
             discountAllocations {
               allocatedAmountSet { shopMoney { amount } }
               discountApplication {
@@ -324,7 +326,30 @@ export function agruparPorDiaDePagamento(pedidos: OrderNode[]): Map<string, Orde
  * `dias` são as datas de referência; a busca recua `FOLGA_PAGAMENTO` dias além
  * da mais antiga para pegar pedidos criados antes e pagos dentro do período.
  */
-export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVendas>> {
+/** Quanto cada produto vendeu no período inteiro, para calcular cobertura. */
+export interface UnidadesDeProduto {
+  titulo: string;
+  produtoId: string | null;
+  unidades: number;
+}
+
+export interface PeriodoDeVendas {
+  porDia: Map<string, ResumoVendas>;
+  /** Chave: título do produto. */
+  unidadesPorProduto: Map<string, UnidadesDeProduto>;
+  /** Dias do pedido que tiveram venda — é o divisor da média diária. */
+  diasComVenda: number;
+}
+
+/**
+ * O período inteiro numa busca só: o resumo de cada dia e a série por produto.
+ *
+ * A série por produto NÃO sai de somar os "top 10" de cada dia. Um produto que
+ * vende de forma constante pode ficar fora do top de um dia atípico, e a média
+ * sairia menor do que é — justamente para o produto cuja cobertura mais
+ * importa. Aqui a contagem passa por todos os itens de todos os pedidos.
+ */
+export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> {
   const ordenados = [...dias].sort();
   const primeiro = ordenados[0];
   const ultimo = ordenados[ordenados.length - 1];
@@ -333,13 +358,37 @@ export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVe
   inicioBusca.setDate(inicioBusca.getDate() - FOLGA_PAGAMENTO);
 
   const pedidos = await pedidosCriadosEntre(inicioBusca.toISOString().slice(0, 10), ultimo);
-  const porDia = agruparPorDiaDePagamento(pedidos);
+  const porDiaDePagamento = agruparPorDiaDePagamento(pedidos);
 
-  const saida = new Map<string, ResumoVendas>();
+  const porDia = new Map<string, ResumoVendas>();
+  const unidadesPorProduto = new Map<string, UnidadesDeProduto>();
+  let diasComVenda = 0;
+
   for (const dia of dias) {
-    saida.set(dia, agregar(porDia.get(dia) ?? [], dia));
+    const doDia = porDiaDePagamento.get(dia) ?? [];
+    porDia.set(dia, agregar(doDia, dia));
+    if (doDia.length) diasComVenda++;
+
+    for (const p of doDia) {
+      if (categoria(p) !== 'venda') continue;
+      for (const item of p.lineItems.nodes) {
+        const atual = unidadesPorProduto.get(item.title) ?? {
+          titulo: item.title,
+          produtoId: item.product?.id ?? null,
+          unidades: 0,
+        };
+        atual.unidades += item.quantity;
+        if (!atual.produtoId && item.product?.id) atual.produtoId = item.product.id;
+        unidadesPorProduto.set(item.title, atual);
+      }
+    }
   }
-  return saida;
+
+  return { porDia, unidadesPorProduto, diasComVenda: diasComVenda || 1 };
+}
+
+export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVendas>> {
+  return (await periodoDeVendas(dias)).porDia;
 }
 
 /** Mantido para uso avulso (o servidor MCP responde perguntas de um dia só). */
@@ -616,6 +665,175 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     trocasDoDia: troca,
     topProdutos,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Cliente novo x recorrente
+ * ------------------------------------------------------------------ */
+
+export interface NovosVsRecorrentes {
+  pedidosNovos: number;
+  pedidosRecorrentes: number;
+  receitaNovos: number;
+  receitaRecorrentes: number;
+  /** Pedidos sem cliente identificado, fora das duas contas. */
+  semCliente: number;
+}
+
+const CLIENTES_QUERY = `
+  query Clientes($q: String!, $cursor: String) {
+    orders(first: 100, query: $q, after: $cursor, sortKey: CREATED_AT) {
+      nodes {
+        name
+        tags
+        discountCodes
+        app { name }
+        totalPriceSet { shopMoney { amount } }
+        transactions(first: 10) { processedAt kind status }
+        customer { numberOfOrders }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/**
+ * Quanto do dia veio de quem já tinha comprado.
+ *
+ * Fica numa consulta própria, e não junto da principal, por um motivo prático:
+ * o campo `customer` exige o escopo `read_customers`, que o app pode não ter. A
+ * Shopify recusa a consulta inteira quando falta escopo — se isso viesse na
+ * busca principal, faltar uma permissão derrubaria o faturamento junto. Aqui,
+ * no pior caso, some uma linha.
+ *
+ * A medida é `numberOfOrders`, o total de pedidos do cliente HOJE. Para o
+ * resumo das 8h sobre o dia anterior isso é preciso o bastante: só erra se a
+ * cliente comprou pela primeira vez ontem e voltou a comprar nas horas entre a
+ * madrugada e o envio — caso em que o pedido de ontem aparece como recompra. O
+ * viés é pequeno e sempre no mesmo sentido.
+ */
+export async function novosVsRecorrentes(dia: string): Promise<NovosVsRecorrentes | null> {
+  const inicio = new Date(`${dia}T12:00:00-03:00`);
+  inicio.setDate(inicio.getDate() - FOLGA_PAGAMENTO);
+
+  const q = [
+    `created_at:>='${inicio.toISOString().slice(0, 10)}T00:00:00-03:00'`,
+    `created_at:<='${dia}T23:59:59-03:00'`,
+    'financial_status:paid',
+  ].join(' ');
+
+  interface Node extends PedidoClassificavel {
+    totalPriceSet: { shopMoney: { amount: string } };
+    transactions: Array<{ processedAt: string | null; kind: string; status: string }>;
+    customer?: { numberOfOrders?: number | string | null } | null;
+  }
+  interface Pagina {
+    orders: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+  }
+
+  const r: NovosVsRecorrentes = {
+    pedidosNovos: 0,
+    pedidosRecorrentes: 0,
+    receitaNovos: 0,
+    receitaRecorrentes: 0,
+    semCliente: 0,
+  };
+
+  let cursor: string | null = null;
+
+  try {
+    for (let pagina = 0; pagina < 60; pagina++) {
+      const d: Pagina = await admin<Pagina>(CLIENTES_QUERY, { q, cursor });
+
+      for (const p of d.orders.nodes) {
+        // Mesmas exclusões do faturamento: troca e influencer não são venda.
+        if (categoria(p) !== 'venda') continue;
+
+        // E o mesmo recorte: pago NO dia, não criado no dia.
+        const captura = p.transactions.find(
+          (t) => t.status === 'SUCCESS' && (t.kind === 'SALE' || t.kind === 'CAPTURE'),
+        );
+        if (!captura?.processedAt || emSaoPaulo(captura.processedAt) !== dia) continue;
+
+        const valor = Number(p.totalPriceSet.shopMoney.amount);
+        const n = Number(p.customer?.numberOfOrders ?? 0);
+
+        if (!p.customer || !n) {
+          r.semCliente++;
+        } else if (n <= 1) {
+          r.pedidosNovos++;
+          r.receitaNovos += valor;
+        } else {
+          r.pedidosRecorrentes++;
+          r.receitaRecorrentes += valor;
+        }
+      }
+
+      if (!d.orders.pageInfo.hasNextPage) break;
+      cursor = d.orders.pageInfo.endCursor;
+    }
+  } catch (e) {
+    // Quase sempre é escopo faltando. Devolver null deixa o resumo seguir sem a
+    // linha, em vez de perder o bloco de vendas inteiro. A mensagem crua da
+    // Shopify repete o mesmo erro uma vez por pedido — inundaria o log do
+    // Railway todo dia às 8h sem dizer nada além da primeira linha.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(
+      msg.includes('read_customers')
+        ? '[shopify] novo x recorrente indisponível: falta o escopo read_customers no app'
+        : `[shopify] novo x recorrente indisponível: ${msg.slice(0, 200)}`,
+    );
+    return null;
+  }
+
+  return r;
+}
+
+/* ------------------------------------------------------------------ *
+ * Estoque
+ * ------------------------------------------------------------------ */
+
+export interface EstoqueDeProduto {
+  produtoId: string;
+  titulo: string;
+  /** Soma de todas as variantes: cor e tamanho juntos. */
+  unidades: number;
+}
+
+/**
+ * Estoque dos produtos pedidos, por id.
+ *
+ * Usa `totalInventory`, que soma todas as variantes. Para a pergunta "quanto
+ * tempo esse modelo ainda dura" é a medida certa; para "qual tamanho está
+ * acabando" seria preciso descer à variante, que é outra conversa e outro
+ * relatório.
+ */
+export async function estoqueDeProdutos(ids: string[]): Promise<Map<string, EstoqueDeProduto>> {
+  const saida = new Map<string, EstoqueDeProduto>();
+  const limpos = [...new Set(ids.filter(Boolean))];
+  if (!limpos.length) return saida;
+
+  interface Resposta {
+    nodes: Array<{ id: string; title: string; totalInventory: number | null } | null>;
+  }
+
+  for (let i = 0; i < limpos.length; i += 50) {
+    const lote = limpos.slice(i, i + 50);
+    const d = await admin<Resposta>(
+      `query Estoque($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product { id title totalInventory }
+        }
+      }`,
+      { ids: lote },
+    );
+    for (const n of d.nodes) {
+      if (!n?.id) continue;
+      saida.set(n.id, { produtoId: n.id, titulo: n.title, unidades: n.totalInventory ?? 0 });
+    }
+  }
+
+  return saida;
 }
 
 /* ------------------------------------------------------------------ *

@@ -1,5 +1,11 @@
 import { config } from '../config.js';
-import { trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
+import {
+  novosVsRecorrentes,
+  periodoDeVendas,
+  trafegoDoDia,
+  type ResumoVendas,
+} from '../data/shopify.js';
+import { coberturaDosCampeoes } from '../data/cobertura.js';
 import { conferirEstorno } from '../data/conciliacao.js';
 import { midiaDoDia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
@@ -95,11 +101,23 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   // Uma busca só cobre o dia e os 7 anteriores. Ver o comentário em
   // `vendasPorDia`: buscar dia a dia multiplicava as chamadas por oito.
   const todosOsDias = [dia, ...diasAntes(dia, 7)];
-  const vendasPorData = await vendasPorDia(todosOsDias);
+  const periodo = await periodoDeVendas(todosOsDias);
+  const vendasPorData = periodo.porDia;
   const vendas = vendasPorData.get(dia)!;
 
-  const [trafego, midia, google, meta, medias, producao, atendimento, reversas, estornos] =
-    await Promise.all([
+  const [
+    trafego,
+    midia,
+    google,
+    meta,
+    medias,
+    producao,
+    atendimento,
+    reversas,
+    estornos,
+    clientes,
+    cobertura,
+  ] = await Promise.all([
     trafegoDoDia(dia),
     opcional('mídia', () => midiaDoDia(dia)),
     // Sem credencial do Google o bloco sai como "não conectado" em vez de
@@ -114,6 +132,12 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     // Confronta reembolso a reembolso com o Troquecommerce. Cabe no resumo
     // porque a busca larga foi trocada por consulta dirigida: ~19s, não ~90s.
     opcional('estornos', () => conferirEstorno(dia, dia)),
+    // Exige o escopo read_customers no app da Shopify. Sem ele devolve null e
+    // a linha some, sem derrubar o resto.
+    opcional('clientes', () => novosVsRecorrentes(dia)),
+    opcional('cobertura', () =>
+      coberturaDosCampeoes(vendas, periodo.unidadesPorProduto, periodo.diasComVenda),
+    ),
   ]);
 
   const dados: DadosResumo = {
@@ -130,6 +154,8 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     atendimento,
     reversas,
     estornos,
+    clientes,
+    cobertura,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.
