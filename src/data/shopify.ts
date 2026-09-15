@@ -659,12 +659,40 @@ const REFUNDS_QUERY = `
  * ninguém enxerga sem comparar os dois lados.
  */
 export async function estornosDoDia(dia: string): Promise<EstornosDoDia> {
-  const de = new Date(`${dia}T12:00:00-03:00`);
-  de.setDate(de.getDate() - 3);
+  const lista = await estornosEntre(dia, dia, 3);
+  return {
+    quantidade: lista.length,
+    valor: lista.reduce((s, e) => s + e.valor, 0),
+    lista,
+  };
+}
 
+/**
+ * Reembolsos num intervalo de datas.
+ *
+ * `folga` é quantos dias antes do início a busca abre: um pedido reembolsado no
+ * dia 10 e mexido de novo no 12 só aparece numa busca por `updated_at` que
+ * alcance o 12. Abrir demais custa páginas à toa, abrir de menos perde
+ * reembolso — três dias cobre o comportamento normal da loja.
+ */
+export async function estornosEntre(
+  de: string,
+  ate: string,
+  folga = 3,
+): Promise<Estorno[]> {
+  const inicio = new Date(`${de}T12:00:00-03:00`);
+  inicio.setDate(inicio.getDate() - folga);
+
+  // O filtro de status é o que torna a busca viável. Sem ele, a janela de duas
+  // semanas devolve 3.406 pedidos; com ele, 134 — e a paginação deixa de ser um
+  // risco. Antes desse filtro a varredura estourava o limite de páginas e
+  // truncava em silêncio, o que produzia divergências inventadas no
+  // confronto com o Troquecommerce: reembolso que existia aparecia como
+  // ausente só porque a página onde ele estava nunca foi lida.
   const q = [
-    `updated_at:>=${de.toISOString().slice(0, 10)}T00:00:00-03:00`,
-    `updated_at:<=${dia}T23:59:59-03:00`,
+    `updated_at:>=${inicio.toISOString().slice(0, 10)}T00:00:00-03:00`,
+    `updated_at:<=${ate}T23:59:59-03:00`,
+    '(financial_status:refunded OR financial_status:partially_refunded)',
   ].join(' ');
 
   interface Node {
@@ -677,28 +705,39 @@ export async function estornosDoDia(dia: string): Promise<EstornosDoDia> {
 
   const lista: Estorno[] = [];
   let cursor: string | null = null;
+  const MAX_PAGINAS = 200;
+  let acabou = false;
 
-  for (let pagina = 0; pagina < 40; pagina++) {
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
     const d: Pagina = await admin<Pagina>(REFUNDS_QUERY, { q, cursor });
     for (const pedido of d.orders.nodes) {
       for (const r of pedido.refunds ?? []) {
-        if (emSaoPaulo(r.createdAt) !== dia) continue;
+        const diaDoRefund = emSaoPaulo(r.createdAt);
+        if (diaDoRefund < de || diaDoRefund > ate) continue;
         const valor = Number(r.totalRefundedSet?.shopMoney.amount ?? 0);
         if (!valor) continue;
         lista.push({ pedido: pedido.name, valor, em: r.createdAt });
       }
     }
-    if (!d.orders.pageInfo.hasNextPage) break;
+    if (!d.orders.pageInfo.hasNextPage) {
+      acabou = true;
+      break;
+    }
     cursor = d.orders.pageInfo.endCursor;
   }
 
-  lista.sort((a, b) => b.valor - a.valor);
+  // Estourar o limite e devolver o que deu não serve aqui: a lista alimenta uma
+  // conferência contra o Troquecommerce, e faltar reembolso vira divergência
+  // inventada. Melhor falhar alto.
+  if (!acabou) {
+    throw new Error(
+      `Shopify: mais de ${MAX_PAGINAS} páginas de reembolso entre ${de} e ${ate}. ` +
+        'Reduza o intervalo — devolver uma lista parcial produziria divergências falsas.',
+    );
+  }
 
-  return {
-    quantidade: lista.length,
-    valor: lista.reduce((s, e) => s + e.valor, 0),
-    lista,
-  };
+  lista.sort((a, b) => b.valor - a.valor);
+  return lista;
 }
 
 export async function vendasDoDia(dia: string): Promise<ResumoVendas> {

@@ -404,6 +404,57 @@ server.tool(
   },
 );
 
+server.tool(
+  'conferir_estorno',
+  [
+    'Confere reembolso a reembolso: o que saiu da Shopify contra o que o Troquecommerce marcou como finalizado.',
+    'Devolve os pedidos divergentes, com número do pedido e valor, para conferência manual.',
+    'Só cobra saída na Shopify de reversa FINALIZADA — reversa em trânsito ainda não deveria ter pago.',
+    'Reversa "Aguardando Pagamento" aparece à parte: é fila de pagamento, não divergência entre sistemas.',
+  ].join(' '),
+  { dia: diaSchema },
+  async ({ dia }) => {
+    const d = dia ?? ontem();
+    const { conferirEstorno } = await import('../src/data/conciliacao.js');
+    const c = await conferirEstorno(d, d);
+
+    const linhas = [
+      `Conferência de estorno · ${d}`,
+      `Shopify: ${numero(c.shopify.quantidade)} reembolso(s) · ${dinheiro(c.shopify.valor)}`,
+      `Troquecommerce: ${numero(c.troque.quantidade)} finalizada(s) com estorno · ${dinheiro(c.troque.valor)}`,
+    ];
+
+    if (c.aguardandoPagamento.quantidade > 0) {
+      linhas.push(
+        `Aguardando pagamento: ${numero(c.aguardandoPagamento.quantidade)} · ${dinheiro(c.aguardandoPagamento.valor)} (fila, não divergência)`,
+      );
+    }
+
+    if (c.soShopify.length) {
+      linhas.push('', `Só na Shopify — ${c.soShopify.length} pedido(s), dinheiro saiu sem reversa finalizada:`);
+      for (const x of c.soShopify) linhas.push(`  ${x.pedido} — ${dinheiro(x.valor)} · ${x.situacao}`);
+    }
+    if (c.soTroque.length) {
+      linhas.push('', `Só no Troquecommerce — ${c.soTroque.length} pedido(s), estorno finalizado sem saída na Shopify:`);
+      for (const x of c.soTroque) linhas.push(`  ${x.pedido} — ${dinheiro(x.valor)}`);
+    }
+    if (c.valorDiferente.length) {
+      linhas.push('', `Valor diferente — ${c.valorDiferente.length} pedido(s):`);
+      for (const x of c.valorDiferente) {
+        linhas.push(
+          `  ${x.pedido} — Shopify ${dinheiro(x.shopify)} · Troquecommerce ${dinheiro(x.troque)} · diferença ${dinheiro(x.diferenca)}`,
+        );
+      }
+    }
+    if (!c.soShopify.length && !c.soTroque.length && !c.valorDiferente.length) {
+      linhas.push('', 'Nenhuma divergência no dia.');
+    }
+    linhas.push('', `Batem: ${c.batem} pedido(s)`);
+
+    return { content: [{ type: 'text', text: linhas.join('\n') }] };
+  },
+);
+
 /* ------------------------------------------------------------------ */
 
 const transport = new StdioServerTransport();
