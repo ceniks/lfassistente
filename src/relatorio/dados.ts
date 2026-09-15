@@ -5,7 +5,7 @@ import { metaDoDia } from '../data/metas.js';
 import { producaoAtual, type Producao } from '../data/producao.js';
 import { atendimentoAtual, type Atendimento } from '../data/atendimento.js';
 import { reversasDoDia, temTroque, type Reversas } from '../data/troque.js';
-import { estornosDoDia, type EstornosDoDia } from '../data/shopify.js';
+import { conferirEstorno, type Conciliacao } from '../data/conciliacao.js';
 
 /**
  * O material do boletim completo.
@@ -47,7 +47,7 @@ export interface DadosRelatorio {
   producao: Producao | null;
   atendimento: Atendimento | null;
   reversas: Reversas | null;
-  estornos: EstornosDoDia | null;
+  estornos: Conciliacao | null;
   leitura?: string;
 }
 
@@ -121,7 +121,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       opcional('produção', () => producaoAtual()),
       opcional('atendimento', () => atendimentoAtual(dia)),
       opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
-      opcional('estornos', () => estornosDoDia(dia)),
+      opcional('estornos', () => conferirEstorno(dia, dia)),
     ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar

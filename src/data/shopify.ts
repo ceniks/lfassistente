@@ -622,6 +622,82 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
  * Estornos
  * ------------------------------------------------------------------ */
 
+/**
+ * Reembolsos de uma lista específica de pedidos, sem varrer a loja.
+ *
+ * A conferência precisa responder "este pedido tem reembolso na Shopify?" para
+ * duas dezenas de pedidos que o Troquecommerce apontou. A alternativa óbvia —
+ * varrer todos os pedidos mexidos nas últimas semanas — custa dezenas de
+ * páginas e mais de um minuto, o que inviabiliza rodar isso dentro do resumo
+ * das 8h. Perguntar pelos números exatos resolve em uma ou duas chamadas.
+ *
+ * O `name:` aceita OR, e o lote de 25 é conservador: o custo da query cresce
+ * com os campos de refund e transação, não com o tamanho do filtro.
+ */
+export async function reembolsosDePedidos(nomes: string[]): Promise<Map<string, Estorno[]>> {
+  const saida = new Map<string, Estorno[]>();
+  const limpos = [...new Set(nomes.map((n) => n.replace(/\D/g, '')).filter(Boolean))];
+
+  for (let i = 0; i < limpos.length; i += 25) {
+    const lote = limpos.slice(i, i + 25);
+    const q = lote.map((n) => `name:${n}`).join(' OR ');
+
+    interface Resposta {
+      orders: {
+        nodes: Array<{
+          name: string;
+          refunds: Array<{
+            createdAt: string;
+            transactions?: {
+              nodes: Array<{
+                kind: string;
+                status: string;
+                amountSet: { shopMoney: { amount: string } } | null;
+              }>;
+            } | null;
+          }>;
+        }>;
+      };
+    }
+
+    const d = await admin<Resposta>(
+      `query PorNome($q: String!) {
+        orders(first: 50, query: $q) {
+          nodes {
+            name
+            refunds(first: 20) {
+              createdAt
+              transactions(first: 10) {
+                nodes { kind status amountSet { shopMoney { amount } } }
+              }
+            }
+          }
+        }
+      }`,
+      { q },
+    );
+
+    for (const pedido of d.orders.nodes) {
+      const lista: Estorno[] = [];
+      for (const r of pedido.refunds ?? []) {
+        let liquidado = 0;
+        let pendente = 0;
+        for (const tr of r.transactions?.nodes ?? []) {
+          if (tr.kind !== 'REFUND') continue;
+          const v = Number(tr.amountSet?.shopMoney.amount ?? 0);
+          if (tr.status === 'SUCCESS') liquidado += v;
+          else if (tr.status === 'PENDING') pendente += v;
+        }
+        if (!liquidado && !pendente) continue;
+        lista.push({ pedido: pedido.name, valor: liquidado, pendente, em: r.createdAt });
+      }
+      if (lista.length) saida.set(pedido.name.replace(/\D/g, ''), lista);
+    }
+  }
+
+  return saida;
+}
+
 export interface Estorno {
   pedido: string;
   /** Reembolso liquidado: o dinheiro saiu. */

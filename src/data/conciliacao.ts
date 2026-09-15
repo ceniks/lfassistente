@@ -21,7 +21,7 @@
  *     dois sistemas, e poluir a lista com ela custa a autoridade do relatório
  *     justamente onde ela importa.
  */
-import { estornosEntre } from './shopify.js';
+import { estornosEntre, reembolsosDePedidos, type Estorno } from './shopify.js';
 import { listar, type Reversa } from './troque.js';
 
 export interface DivergenciaSimples {
@@ -52,7 +52,7 @@ export interface Conciliacao {
   batem: number;
 }
 
-/** Dias antes e depois para procurar o par de um reembolso órfão. */
+/** Dias antes e depois para procurar a reversa de um reembolso órfão. */
 const JANELA = 20;
 const TOLERANCIA = 1;
 
@@ -73,9 +73,12 @@ const finalizada = (r: Reversa) => normalizar(r.status) === 'finalizado';
 const aguardandoPagamento = (r: Reversa) => normalizar(r.status) === 'aguardando pagamento';
 
 export async function conferirEstorno(de: string, ate: string): Promise<Conciliacao> {
-  const [noPeriodo, largoShopify, largoTroque] = await Promise.all([
+  // Só duas buscas largas: os reembolsos do período na Shopify e as reversas do
+  // Troquecommerce numa janela folgada. O lado caro — procurar na Shopify o
+  // reembolso de uma reversa que caiu fora do período — vira consulta por nome
+  // de pedido mais adiante, em vez de varredura.
+  const [noPeriodo, largoTroque] = await Promise.all([
     estornosEntre(de, ate),
-    estornosEntre(desloca(de, -JANELA), desloca(ate, JANELA), 5),
     listar({ atualizadaDe: desloca(de, -JANELA), atualizadaAte: desloca(ate, JANELA) }),
   ]);
 
@@ -86,12 +89,6 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
 
   const troqueNoPeriodo = largoTroque.filter((r) => dentro(r) && comEstorno(r) && finalizada(r));
   const aguardando = largoTroque.filter((r) => dentro(r) && comEstorno(r) && aguardandoPagamento(r));
-
-  const shopifyPorPedido = new Map<string, typeof largoShopify>();
-  for (const e of largoShopify) {
-    const k = chave(e.pedido);
-    shopifyPorPedido.set(k, [...(shopifyPorPedido.get(k) ?? []), e]);
-  }
 
   const finalizadasPorPedido = new Map<string, Reversa[]>();
   for (const r of largoTroque.filter((x) => comEstorno(x) && finalizada(x))) {
@@ -106,6 +103,12 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     const k = chave(r.ecommerce_number);
     qualquerPorPedido.set(k, [...(qualquerPorPedido.get(k) ?? []), r]);
   }
+
+  // Pergunta dirigida: destas reversas finalizadas, quais têm reembolso na
+  // Shopify? Cobre o caso do reembolso feito em outro dia, sem varrer nada.
+  const shopifyPorPedido: Map<string, Estorno[]> = await reembolsosDePedidos(
+    troqueNoPeriodo.map((r) => r.ecommerce_number ?? ''),
+  );
 
   const usados = new Set<string>();
   const soShopify: DivergenciaSimples[] = [];

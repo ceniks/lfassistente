@@ -1,4 +1,5 @@
-import type { EstornosDoDia, ResumoVendas, Trafego } from "../data/shopify.js";
+import type { ResumoVendas, Trafego } from "../data/shopify.js";
+import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
 import type { Atendimento } from "../data/atendimento.js";
@@ -89,7 +90,7 @@ export interface DadosResumo {
   producao?: Producao | null;
   atendimento?: Atendimento | null;
   reversas?: Reversas | null;
-  estornos?: EstornosDoDia | null;
+  estornos?: Conciliacao | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -336,19 +337,46 @@ export function montarResumo(d: DadosResumo): string {
     }
     if (t.travadas > 0) tr.push(`${numero(t.travadas)} esperando a cliente postar há +7 dias`);
 
-    // O confronto com a Shopify é o ponto: "finalizada" no Troquecommerce não
-    // quer dizer que o dinheiro saiu. A diferença entre os dois lados é o que
-    // ninguém enxerga olhando um painel só.
+    // O confronto pedido a pedido é o ponto: "finalizada" no Troquecommerce não
+    // quer dizer que o dinheiro saiu, e comparar só os totais confunde
+    // descompasso de data com dinheiro que não saiu.
     if (d.estornos) {
-      const e = d.estornos;
-      tr.push(`Reembolsado na Shopify: ${numero(e.quantidade)} · ${dinheiro(e.valor)}`);
-      const dif = t.valorEstorno - e.valor;
-      if (Math.abs(dif) >= 1) {
-        tr.push(
-          dif > 0
-            ? `⚠️ ${dinheiro(dif)} marcado como estorno no Troquecommerce sem saída na Shopify`
-            : `⚠️ ${dinheiro(-dif)} reembolsado na Shopify além do registrado no Troquecommerce`,
-        );
+      const c = d.estornos;
+      tr.push(
+        `Estorno Shopify ${dinheiro(c.shopify.valor)}` +
+          (c.shopify.pendente > 0 ? ` (+${dinheiro(c.shopify.pendente)} pendente)` : "") +
+          ` · Troquecommerce ${dinheiro(c.troque.valor)}`,
+      );
+
+      const listar = (xs: Array<{ pedido: string }>) => {
+        const nomes = xs.slice(0, 4).map((x) => x.pedido).join(", ");
+        return xs.length > 4 ? `${nomes} +${xs.length - 4}` : nomes;
+      };
+
+      const limpo =
+        !c.soShopify.length && !c.soTroque.length && !c.valorDiferente.length;
+
+      if (limpo) {
+        tr.push(`✅ Os dois lados batem — ${numero(c.batem)} pedidos conferidos`);
+      } else {
+        if (c.soShopify.length) {
+          tr.push(
+            `⚠️ ${numero(c.soShopify.length)} só na Shopify (saiu sem reversa finalizada): ${listar(c.soShopify)}`,
+          );
+        }
+        if (c.soTroque.length) {
+          tr.push(
+            `⚠️ ${numero(c.soTroque.length)} só no Troquecommerce (finalizado sem saída): ${listar(c.soTroque)}`,
+          );
+        }
+        for (const x of c.valorDiferente.slice(0, 3)) {
+          tr.push(
+            `⚠️ ${x.pedido} valor diferente: Shopify ${dinheiro(x.shopify)} vs Troque ${dinheiro(x.troque)}`,
+          );
+        }
+        if (c.valorDiferente.length > 3) {
+          tr.push(`⚠️ +${c.valorDiferente.length - 3} com valor diferente`);
+        }
       }
     }
     b.push(tr.join("\n"));

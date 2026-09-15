@@ -1,5 +1,6 @@
 import { config } from '../config.js';
-import { estornosDoDia, trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
+import { trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
+import { conferirEstorno } from '../data/conciliacao.js';
 import { midiaDoDia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
@@ -110,9 +111,9 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     opcional('produção', () => producaoAtual()),
     opcional('atendimento', () => atendimentoAtual(dia)),
     opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
-    // Varre os pedidos mexidos nos últimos dias para achar os reembolsos —
-    // é a única forma, já que a Shopify não filtra por data de refund.
-    opcional('estornos', () => estornosDoDia(dia)),
+    // Confronta reembolso a reembolso com o Troquecommerce. Cabe no resumo
+    // porque a busca larga foi trocada por consulta dirigida: ~19s, não ~90s.
+    opcional('estornos', () => conferirEstorno(dia, dia)),
   ]);
 
   const dados: DadosResumo = {

@@ -127,12 +127,20 @@ function tabela(
   const alturaLinha = 15;
   garantirEspaco(doc, alturaLinha * (linhas.length + 1) + 10);
 
+  // Coluna alinhada à direita encosta na próxima, porque o texto preenche até a
+  // borda da célula. Um respiro de 8pt resolve — e não se aplica à última
+  // coluna, que tem a margem da página como folga.
+  const util = (i: number) =>
+    (alinhamentos[i] ?? 'left') === 'right' && i < larguras.length - 1
+      ? larguras[i] - 8
+      : larguras[i];
+
   let y = doc.y;
   doc.font('Helvetica-Bold').fontSize(7.5).fillColor(TINTA3);
   let x = MARGEM;
   cabecalho.forEach((c, i) => {
     doc.text(c.toUpperCase(), x, y, {
-      width: larguras[i],
+      width: util(i),
       align: alinhamentos[i] ?? 'left',
       characterSpacing: 0.6,
     });
@@ -154,8 +162,12 @@ function tabela(
         .font(i === 0 ? 'Helvetica' : 'Helvetica-Bold')
         .fontSize(8.5)
         .fillColor(i === 0 ? TINTA : TINTA2)
-        .text(i === 0 ? cortar(doc, celula, larguras[i] - 6, 'Helvetica', 8.5) : celula, x, y, {
-          width: larguras[i],
+        .text(
+          cortar(doc, celula, util(i) - 6, i === 0 ? 'Helvetica' : 'Helvetica-Bold', 8.5),
+          x,
+          y,
+          {
+          width: util(i),
           align: alinhamentos[i] ?? 'left',
           lineBreak: false,
         });
@@ -595,29 +607,72 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
   linha(doc, 'Esperando a cliente postar há +7 dias', numero(t.travadas));
 
   if (d.estornos) {
-    const e = d.estornos;
-    const dif = t.valorEstorno - e.valor;
+    const c = d.estornos;
+    titulo(doc, 'Conferência de estorno');
     linha(
       doc,
       'Reembolsado na Shopify',
-      dinheiro(e.valor),
-      `${numero(e.quantidade)} reembolso(s) processados no dia`,
+      dinheiro(c.shopify.valor),
+      c.shopify.pendente > 0
+        ? `${numero(c.shopify.quantidade)} reembolso(s) · ${dinheiro(c.shopify.pendente)} emitido e pendente no adquirente`
+        : `${numero(c.shopify.quantidade)} reembolso(s) processados no dia`,
     );
     linha(
       doc,
-      'Diferença entre os dois sistemas',
-      dinheiro(Math.abs(dif)),
-      dif > 0
-        ? 'registrado como estorno no Troquecommerce sem saída na Shopify'
-        : dif < 0
-          ? 'saiu da Shopify além do registrado no Troquecommerce'
-          : 'os dois lados batem',
-      Math.abs(dif) >= 1 ? RUIM : TINTA,
+      'Finalizado no Troquecommerce',
+      dinheiro(c.troque.valor),
+      `${numero(c.troque.quantidade)} reversa(s)`,
     );
+    if (c.aguardandoPagamento.quantidade > 0) {
+      linha(
+        doc,
+        'Aprovado e não pago',
+        dinheiro(c.aguardandoPagamento.valor),
+        `${numero(c.aguardandoPagamento.quantidade)} reversa(s) em "Aguardando Pagamento" — fila, não divergência`,
+      );
+    }
+
+    const divergentes = c.soShopify.length + c.soTroque.length + c.valorDiferente.length;
+    linha(
+      doc,
+      'Pedidos divergentes',
+      numero(divergentes),
+      divergentes === 0
+        ? `os dois lados batem nos ${numero(c.batem)} pedidos conferidos`
+        : `${numero(c.batem)} conferidos batem`,
+      divergentes > 0 ? RUIM : TINTA,
+    );
+
+    if (divergentes > 0) {
+      const linhas: string[][] = [];
+      for (const x of c.soShopify) {
+        linhas.push([x.pedido, 'Só na Shopify', x.situacao, dinheiro(x.valor)]);
+      }
+      for (const x of c.soTroque) {
+        linhas.push([x.pedido, 'Só no Troquecommerce', 'finalizado sem saída na Shopify', dinheiro(x.valor)]);
+      }
+      for (const x of c.valorDiferente) {
+        linhas.push([
+          x.pedido,
+          'Valor diferente',
+          `Shopify ${dinheiro(x.shopify)} contra Troque ${dinheiro(x.troque)}`,
+          dinheiro(x.diferenca),
+        ]);
+      }
+      tabela(
+        doc,
+        ['Pedido', 'Divergência', 'Situação', 'Valor'],
+        linhas,
+        [70, 120, LARGURA - 280, 90],
+        ['left', 'left', 'left', 'right'],
+      );
+    }
+
     paragrafo(
       doc,
-      'Reversa finalizada no Troquecommerce não quer dizer que o dinheiro saiu. ' +
-        'A diferença entre os dois lados é o que nenhum painel sozinho mostra.',
+      'Reversa finalizada no Troquecommerce não quer dizer que o dinheiro saiu, e reembolso na ' +
+        'Shopify não quer dizer que a reversa foi fechada. A conferência é pedido a pedido: ' +
+        'reembolso feito em outro dia é procurado pelo número do pedido antes de virar divergência.',
       TINTA3,
     );
   }
