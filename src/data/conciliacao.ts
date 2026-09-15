@@ -22,7 +22,7 @@
  *     justamente onde ela importa.
  */
 import { estornosEntre, reembolsosDePedidos, type Estorno } from './shopify.js';
-import { listar, type Reversa } from './troque.js';
+import { listar, valorPago, type Reversa } from './troque.js';
 
 export interface DivergenciaSimples {
   pedido: string;
@@ -69,6 +69,20 @@ const normalizar = (s: string) =>
   s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 
 const comEstorno = (r: Reversa) => (r.refund_value ?? 0) > 0;
+
+/**
+ * O valor que a conferência compara com a Shopify.
+ *
+ * Tem de ser o PAGO, não o solicitado. O Troquecommerce mostra os dois no
+ * painel e o `refund_value` da API é o primeiro: o que a cliente pediu na
+ * abertura da reversa. Comparar por ele inventa divergência sempre que o
+ * estorno sai por valor diferente do pedido — foi o caso do #134507, que
+ * apareceu como "-R$ 129,90" quando os dois lados pagaram R$ 240,00.
+ *
+ * Reversa finalizada sem pagamento registrado cai no solicitado, porque zerar
+ * esconderia o caso; a linha aparece como divergência, que é o certo.
+ */
+const valorParaConferir = (r: Reversa) => valorPago(r) ?? r.refund_value ?? 0;
 const finalizada = (r: Reversa) => normalizar(r.status) === 'finalizado';
 const aguardandoPagamento = (r: Reversa) => normalizar(r.status) === 'aguardando pagamento';
 
@@ -133,7 +147,7 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     }
 
     usados.add(k);
-    const soma = pares.reduce((s, r) => s + (r.refund_value ?? 0), 0);
+    const soma = pares.reduce((s, r) => s + valorParaConferir(r), 0);
     // Para o confronto, reembolso emitido conta mesmo se o adquirente ainda não
     // liquidou: a decisão já foi tomada do lado da loja.
     const dif = e.valor + e.pendente - soma;
@@ -154,14 +168,17 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     const k = chave(r.ecommerce_number);
     if (usados.has(k)) continue;
     const pares = shopifyPorPedido.get(k) ?? [];
-    const valor = r.refund_value ?? 0;
+    const valor = valorParaConferir(r);
     if (pares.length) {
       batem++;
     } else {
       soTroque.push({
         pedido: `#${r.ecommerce_number ?? '?'}`,
         valor,
-        situacao: `status "${r.status}" · nenhum reembolso na Shopify`,
+        situacao:
+          valorPago(r) === null
+            ? 'finalizado sem pagamento registrado no Troquecommerce nem na Shopify'
+            : `pago no Troquecommerce, sem reembolso na Shopify`,
       });
     }
   }
@@ -178,8 +195,10 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     },
     troque: {
       quantidade: troqueNoPeriodo.length,
-      valor: somar(troqueNoPeriodo, (r) => r.refund_value ?? 0),
+      valor: somar(troqueNoPeriodo, valorParaConferir),
     },
+    // Aqui o solicitado é o número certo: é o que a L&F ainda deve, e por
+    // definição não existe pagamento registrado nessas reversas.
     aguardandoPagamento: {
       quantidade: aguardando.length,
       valor: somar(aguardando, (r) => r.refund_value ?? 0),

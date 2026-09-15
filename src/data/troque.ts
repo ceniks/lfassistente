@@ -141,7 +141,17 @@ export interface Reversa {
   updated_at?: string;
   price?: number;
   exchange_value?: number;
+  /**
+   * O estorno SOLICITADO, não o pago.
+   *
+   * Existe desde a abertura da reversa e não muda quando o pagamento sai por um
+   * valor diferente. O painel mostra os dois lado a lado — "Valor solicitado" e
+   * "Valor Pago" — e só o segundo é dinheiro que saiu. Para saber o que foi
+   * pago, use `valorPago()`.
+   */
   refund_value?: number;
+  /** Preenchido quando o estorno é efetivamente pago. Nulo antes disso. */
+  reverse_payment?: { value?: number | null } | null;
   /** Quanto ficou em crédito em vez de virar estorno. */
   retained_value?: number;
   retained_bonus?: number;
@@ -240,6 +250,18 @@ export type Tipo = 'troca' | 'estorno' | 'sem_reembolso' | 'misto' | 'desconheci
  * caindo silenciosamente no balde errado estraga a métrica que mais importa
  * aqui, que é a proporção entre os dois.
  */
+/**
+ * Quanto saiu de fato, ou `null` se ainda não saiu.
+ *
+ * O `reverse_payment` só aparece quando o pagamento é efetuado, então a
+ * ausência dele é informação: reversa finalizada sem pagamento registrado é
+ * caso para olhar, não zero para somar.
+ */
+export function valorPago(r: Reversa): number | null {
+  const v = r.reverse_payment?.value;
+  return typeof v === 'number' ? v : null;
+}
+
 export function tipo(r: Reversa): Tipo {
   const t = norm(r.reverse_type);
   // Valores reais medidos em 30 dias: Troca (602), Devolucao (381),
@@ -370,7 +392,9 @@ export async function reversasDoDia(dia: string, loja: Loja = 'atual'): Promise<
     if (s === 'finalizado') {
       r.concluidas += 1;
       r.valorTroca += x.exchange_value ?? 0;
-      r.valorEstorno += x.refund_value ?? 0;
+      // O que saiu, não o que foi pedido. Quando não há pagamento registrado,
+      // cai no solicitado para não sumir com o valor — mas isso é exceção.
+      r.valorEstorno += valorPago(x) ?? x.refund_value ?? 0;
       r.valorRetido += x.retained_value ?? 0;
     } else if (s === 'cancelado') {
       r.canceladas += 1;
