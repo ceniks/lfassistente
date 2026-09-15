@@ -15,7 +15,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { vendasDoDia, trafegoDoDia } from '../src/data/shopify.js';
+import { vendasDoDia, trafegoDoDia, estornosDoDia } from '../src/data/shopify.js';
 import { midiaDoDia, desempenhoPorNivel, type Nivel } from '../src/data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../src/data/google.js';
 import { metaDoDia } from '../src/data/metas.js';
@@ -40,7 +40,8 @@ const diaSchema = z
 server.tool(
   'vendas_do_dia',
   [
-    'Faturamento, pedidos, ticket médio, desconto e top 5 produtos de um dia.',
+    'Faturamento, pedidos, ticket médio, desconto, cupons mais usados, top 10 produtos,',
+    'vendas por categoria e trocas pagas de um dia.',
     'Conta apenas pedidos com pagamento confirmado naquele dia.',
     'Exclui trocas (cupom TROCA... ou app Troquecommerce) e pedidos de influencer (tag Influencer, que saem a R$ 0).',
     'Inclui draft orders de venda assistida — são venda real.',
@@ -59,8 +60,8 @@ server.tool(
       `Peças: ${numero(v.pecas)} (${numero(v.pecasPorPedido, 2)} por pedido)`,
       '',
       `Desconto total: ${dinheiro(v.desconto.total)} — ${pct(bruto > 0 ? v.desconto.total / bruto : 0)} do bruto`,
-      `  promoção automática: ${dinheiro(v.desconto.promocaoAutomatica)}`,
-      `  cupom: ${dinheiro(v.desconto.cupom)}`,
+      `  promoção do site: ${dinheiro(v.desconto.promocaoAutomatica)}`,
+      `  cupom de venda: ${dinheiro(v.desconto.cupom)}`,
       `  seeding de influencer: ${dinheiro(v.desconto.seedingInfluencer)} (custo de mídia, não concessão de preço)`,
       '',
       `Fora da conta: ${v.excluidos.trocas} troca(s), ${v.excluidos.influencers} pedido(s) de influencer`,
@@ -76,11 +77,41 @@ server.tool(
       );
     }
 
+    if (v.cuponsMaisUsados.length) {
+      linhas.push('', 'Cupons de venda mais usados:');
+      for (const c of v.cuponsMaisUsados) {
+        linhas.push(`  ${c.codigo} — ${numero(c.pedidos)} pedidos, ${dinheiro(c.valor)} abatidos`);
+      }
+    }
+
+    const tro = v.trocasDoDia;
+    linhas.push('', `Trocas pagas no dia: ${numero(tro.total)} pedidos (fora do faturamento)`);
+    if (tro.porCupom.pedidos > 0) {
+      linhas.push(
+        `  por cupom de troca: ${numero(tro.porCupom.pedidos)} pedidos, ${dinheiro(tro.porCupom.valor)} abatidos`,
+      );
+    }
+    if (tro.direta.pedidos > 0) {
+      linhas.push(
+        `  troca direta (Troquecommerce): ${numero(tro.direta.pedidos)} pedidos, ` +
+          `${numero(tro.direta.pecas)} peças, ${dinheiro(tro.direta.valorAPrecoDeSite)} a preço de site`,
+      );
+    }
+
     if (v.topProdutos.length) {
-      linhas.push('', 'Top 5 por peças vendidas:');
+      linhas.push('', 'Top 10 por peças vendidas:');
       v.topProdutos.forEach((p, i) =>
         linhas.push(`  ${i + 1}. ${p.titulo} — ${numero(p.pecas)} peças, ${dinheiro(p.receita)}`),
       );
+    }
+
+    if (v.categorias.length) {
+      linhas.push('', 'Vendas por categoria:');
+      for (const c of v.categorias) {
+        linhas.push(
+          `  ${c.categoria} — ${numero(c.pecas)} peças, ${pct(c.participacao)} das peças, ${dinheiro(c.receita)}`,
+        );
+      }
     }
 
     return { content: [{ type: 'text', text: linhas.join('\n') }] };
@@ -338,6 +369,38 @@ server.tool(
         },
       ],
     };
+  },
+);
+
+/* ------------------------------------------------------------------ *
+ * Estornos
+ * ------------------------------------------------------------------ */
+
+server.tool(
+  'estornos_do_dia',
+  [
+    'Reembolsos processados na Shopify num dia: quantidade, valor total e os maiores.',
+    'É o dinheiro que efetivamente saiu, e não o que o Troquecommerce marcou como finalizado —',
+    'reversa finalizada lá não garante saída aqui, e a diferença entre os dois lados costuma existir.',
+  ].join(' '),
+  { dia: diaSchema },
+  async ({ dia }) => {
+    const d = dia ?? ontem();
+    const e = await estornosDoDia(d);
+
+    const linhas = [
+      `Reembolsos da Shopify em ${d}`,
+      `${numero(e.quantidade)} reembolso(s) · ${dinheiro(e.valor)}`,
+    ];
+
+    if (e.lista.length) {
+      linhas.push('', 'Maiores do dia:');
+      for (const x of e.lista.slice(0, 10)) {
+        linhas.push(`  ${x.pedido} — ${dinheiro(x.valor)}`);
+      }
+    }
+
+    return { content: [{ type: 'text', text: linhas.join('\n') }] };
   },
 );
 

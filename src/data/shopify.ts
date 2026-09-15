@@ -159,12 +159,46 @@ interface OrderNode extends PedidoClassificavel {
     nodes: Array<{
       title: string;
       quantity: number;
+      variant?: { price?: string | null } | null;
       discountAllocations?: Array<{
         allocatedAmountSet: { shopMoney: { amount: string } };
         discountApplication?: { __typename?: string; code?: string | null } | null;
       }>;
     }>;
   };
+}
+
+/** Um cupom de venda no ranking do dia. */
+export interface CupomUsado {
+  codigo: string;
+  pedidos: number;
+  valor: number;
+}
+
+/** Uma categoria de produto no recorte do dia. */
+export interface CategoriaVendida {
+  categoria: string;
+  pecas: number;
+  receita: number;
+  /** Fração das peças do dia. */
+  participacao: number;
+}
+
+/**
+ * As trocas do dia, que saem do faturamento mas precisam ser vistas.
+ *
+ * Duas mecânicas distintas, e misturá-las esconde o que cada uma custa:
+ *
+ *  - **cupom**: a cliente recebeu um código TROCA##### e o usou numa compra
+ *    nova. O valor é o que o cupom abateu.
+ *  - **direta**: o TroqueCommerce cria o pedido com a peça a R$ 0,01, então o
+ *    valor cobrado não diz nada. O que interessa é quanto aquela peça valeria
+ *    na loja — por isso o cálculo usa o preço da variante.
+ */
+export interface TrocasDoDia {
+  total: number;
+  porCupom: { pedidos: number; valor: number };
+  direta: { pedidos: number; pecas: number; valorAPrecoDeSite: number };
 }
 
 export interface ResumoVendas {
@@ -181,6 +215,9 @@ export interface ResumoVendas {
     seedingInfluencer: number;
   };
   excluidos: { trocas: number; influencers: number };
+  cuponsMaisUsados: CupomUsado[];
+  categorias: CategoriaVendida[];
+  trocasDoDia: TrocasDoDia;
   topProdutos: Array<{ titulo: string; pecas: number; receita: number }>;
 }
 
@@ -206,6 +243,7 @@ const ORDERS_QUERY = `
           nodes {
             title
             quantity
+            variant { price }
             discountAllocations {
               allocatedAmountSet { shopMoney { amount } }
               discountApplication {
@@ -335,6 +373,43 @@ function emSaoPaulo(iso: string): string {
 const num = (v?: { shopMoney: { amount: string } } | null) => Number(v?.shopMoney.amount ?? 0);
 
 /**
+ * A categoria de um produto, tirada da primeira palavra do título.
+ *
+ * Parece frágil e é a opção mais robusta que a loja oferece hoje. O
+ * `productType` está vazio em todos os produtos. A taxonomia da Shopify
+ * (`category`) vem em inglês e se contradiz: "Blazer Filadélfia" é *Sport
+ * Jackets* e "Blazer Alemanha" é *Blazers*; "Casaco Roma" é *Outerwear* e
+ * "Casaco Londres" é *Wrap Coats*. As coleções têm os nomes certos em português
+ * mas cada produto está em cinco delas ao mesmo tempo — "Home page",
+ * "Best-Sellers", "Roupas", "Lançamentos", "Influencers" — e separar a
+ * categoria do merchandising exigiria uma lista de exceções para manter à mão.
+ *
+ * A nomenclatura da L&F, por outro lado, é impecável: "Calça Londres",
+ * "Blazer Alemanha", "Casaco Roma". A primeira palavra bate 1 para 1 com as
+ * coleções de categoria e não custa nenhuma chamada extra à API.
+ */
+export function categoriaDoProduto(titulo: string): string {
+  const primeira = titulo.trim().split(/\s+/)[0] ?? '';
+  if (!primeira) return 'Sem categoria';
+  return primeira.charAt(0).toUpperCase() + primeira.slice(1).toLowerCase();
+}
+
+/**
+ * Quanto a peça vale na loja, não quanto o pedido cobrou por ela.
+ *
+ * Existe por causa da troca direta: o TroqueCommerce cria o pedido com a peça a
+ * R$ 0,01, então somar `totalPrice` daria três centavos para uma troca de R$
+ * 650. O preço da variante é o que a mesma peça custaria para uma cliente
+ * comprando normalmente — é essa a medida do que a troca representou.
+ */
+function valorAPrecoDeSite(item: {
+  quantity: number;
+  variant?: { price?: string | null } | null;
+}): number {
+  return Number(item.variant?.price ?? 0) * item.quantity;
+}
+
+/**
  * Separa o desconto de um pedido entre cupom de venda e promoção do site.
  *
  * Existe porque a conta ingênua — "tem cupom? então todo o desconto é cupom" —
@@ -404,6 +479,14 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   let influencers = 0;
 
   const porProduto = new Map<string, { pecas: number; receita: number }>();
+  const porCategoria = new Map<string, { pecas: number; receita: number }>();
+  const porCupom = new Map<string, { pedidos: number; valor: number }>();
+
+  const troca = {
+    total: 0,
+    porCupom: { pedidos: 0, valor: 0 },
+    direta: { pedidos: 0, pecas: 0, valorAPrecoDeSite: 0 },
+  };
 
   for (const p of pedidos) {
     const cat = categoria(p);
@@ -419,6 +502,27 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
 
     if (cat === 'troca') {
       trocas++;
+      troca.total++;
+
+      // Pedido criado pelo app do TroqueCommerce é troca direta: peça trocada
+      // por peça, sem cupom no meio. Qualquer outro pedido que caiu aqui veio
+      // por um cupom TROCA aplicado numa compra na loja.
+      if (norm(p.app?.name ?? '').includes('troque')) {
+        troca.direta.pedidos++;
+        for (const item of p.lineItems.nodes) {
+          troca.direta.pecas += item.quantity;
+          troca.direta.valorAPrecoDeSite += valorAPrecoDeSite(item);
+        }
+      } else {
+        troca.porCupom.pedidos++;
+        for (const item of p.lineItems.nodes) {
+          for (const a of item.discountAllocations ?? []) {
+            if (norm(a.discountApplication?.code ?? '').startsWith('troca')) {
+              troca.porCupom.valor += Number(a.allocatedAmountSet?.shopMoney.amount ?? 0);
+            }
+          }
+        }
+      }
       continue;
     }
 
@@ -430,6 +534,26 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     descontoCupom += q.cupom;
     descontoPromo += q.promocaoAutomatica;
 
+    // Ranking de cupons: um pedido conta uma vez por código, mesmo que o cupom
+    // tenha sido rateado entre vários itens.
+    const cuponsDoPedido = new Map<string, number>();
+    for (const item of p.lineItems.nodes) {
+      for (const a of item.discountAllocations ?? []) {
+        const app = a.discountApplication;
+        if (app?.__typename !== 'DiscountCodeApplication') continue;
+        const codigo = (app.code ?? '').trim();
+        if (!codigo || norm(codigo).startsWith('troca')) continue;
+        const valor = Number(a.allocatedAmountSet?.shopMoney.amount ?? 0);
+        cuponsDoPedido.set(codigo, (cuponsDoPedido.get(codigo) ?? 0) + valor);
+      }
+    }
+    for (const [codigo, valor] of cuponsDoPedido) {
+      const atual = porCupom.get(codigo) ?? { pedidos: 0, valor: 0 };
+      atual.pedidos++;
+      atual.valor += valor;
+      porCupom.set(codigo, atual);
+    }
+
     const itensDoPedido = p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0);
     pecas += itensDoPedido;
 
@@ -438,15 +562,35 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       atual.pecas += item.quantity;
       // Rateia a receita do pedido entre as peças, para que um produto vendido
       // dentro de uma promoção não apareça com o preço cheio.
-      atual.receita += itensDoPedido > 0 ? (total * item.quantity) / itensDoPedido : 0;
+      const rateio = itensDoPedido > 0 ? (total * item.quantity) / itensDoPedido : 0;
+      atual.receita += rateio;
       porProduto.set(item.title, atual);
+
+      const nomeCat = categoriaDoProduto(item.title);
+      const cate = porCategoria.get(nomeCat) ?? { pecas: 0, receita: 0 };
+      cate.pecas += item.quantity;
+      cate.receita += rateio;
+      porCategoria.set(nomeCat, cate);
     }
   }
 
   const topProdutos = [...porProduto.entries()]
     .map(([titulo, v]) => ({ titulo, ...v }))
     .sort((a, b) => b.pecas - a.pecas)
-    .slice(0, 5);
+    .slice(0, 10);
+
+  const categorias = [...porCategoria.entries()]
+    .map(([categoria, v]) => ({
+      categoria,
+      ...v,
+      participacao: pecas > 0 ? v.pecas / pecas : 0,
+    }))
+    .sort((a, b) => b.pecas - a.pecas);
+
+  const cuponsMaisUsados = [...porCupom.entries()]
+    .map(([codigo, v]) => ({ codigo, ...v }))
+    .sort((a, b) => b.pedidos - a.pedidos || b.valor - a.valor)
+    .slice(0, 3);
 
   return {
     data: dia,
@@ -462,7 +606,98 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       seedingInfluencer: seeding,
     },
     excluidos: { trocas, influencers },
+    cuponsMaisUsados,
+    categorias,
+    trocasDoDia: troca,
     topProdutos,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Estornos
+ * ------------------------------------------------------------------ */
+
+export interface Estorno {
+  pedido: string;
+  valor: number;
+  /** Momento do reembolso, em ISO. */
+  em: string;
+}
+
+export interface EstornosDoDia {
+  quantidade: number;
+  valor: number;
+  lista: Estorno[];
+}
+
+const REFUNDS_QUERY = `
+  query Reembolsos($q: String!, $cursor: String) {
+    orders(first: 50, query: $q, after: $cursor, sortKey: UPDATED_AT) {
+      nodes {
+        name
+        refunds(first: 20) {
+          createdAt
+          totalRefundedSet { shopMoney { amount } }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/**
+ * Os reembolsos processados num dia, do lado da Shopify.
+ *
+ * A busca é por `updated_at` e não por data do reembolso: a Shopify não expõe
+ * filtro por data de refund, mas todo reembolso atualiza o pedido. A janela
+ * abre alguns dias antes porque um pedido pode ser reembolsado e voltar a ser
+ * mexido depois — o recorte fino fica no filtro em memória, sobre o
+ * `createdAt` de cada refund.
+ *
+ * Serve para bater com o TroqueCommerce: a reversa lá pode estar "finalizada"
+ * enquanto o dinheiro não saiu daqui, e essa diferença é justamente o que
+ * ninguém enxerga sem comparar os dois lados.
+ */
+export async function estornosDoDia(dia: string): Promise<EstornosDoDia> {
+  const de = new Date(`${dia}T12:00:00-03:00`);
+  de.setDate(de.getDate() - 3);
+
+  const q = [
+    `updated_at:>=${de.toISOString().slice(0, 10)}T00:00:00-03:00`,
+    `updated_at:<=${dia}T23:59:59-03:00`,
+  ].join(' ');
+
+  interface Node {
+    name: string;
+    refunds: Array<{ createdAt: string; totalRefundedSet: { shopMoney: { amount: string } } | null }>;
+  }
+  interface Pagina {
+    orders: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+  }
+
+  const lista: Estorno[] = [];
+  let cursor: string | null = null;
+
+  for (let pagina = 0; pagina < 40; pagina++) {
+    const d: Pagina = await admin<Pagina>(REFUNDS_QUERY, { q, cursor });
+    for (const pedido of d.orders.nodes) {
+      for (const r of pedido.refunds ?? []) {
+        if (emSaoPaulo(r.createdAt) !== dia) continue;
+        const valor = Number(r.totalRefundedSet?.shopMoney.amount ?? 0);
+        if (!valor) continue;
+        lista.push({ pedido: pedido.name, valor, em: r.createdAt });
+      }
+    }
+    if (!d.orders.pageInfo.hasNextPage) break;
+    cursor = d.orders.pageInfo.endCursor;
+  }
+
+  lista.sort((a, b) => b.valor - a.valor);
+
+  return {
+    quantidade: lista.length,
+    valor: lista.reduce((s, e) => s + e.valor, 0),
+    lista,
   };
 }
 

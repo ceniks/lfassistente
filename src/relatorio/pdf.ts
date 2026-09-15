@@ -79,14 +79,17 @@ function linha(doc: Doc, rotulo: string, valor: string, nota?: string, corValor 
     .fontSize(9)
     .fillColor(corValor)
     .text(valor, MARGEM + 200, y, { width: 110, align: 'right' });
+  let alturaNota = 0;
   if (nota) {
-    doc
-      .font('Helvetica')
-      .fontSize(8.5)
-      .fillColor(TINTA3)
-      .text(nota, MARGEM + 320, y + 0.5, { width: LARGURA - 320 });
+    doc.font('Helvetica').fontSize(8.5).fillColor(TINTA3);
+    // Medir antes de escrever: nota comprida quebra em duas linhas, e avançar
+    // sempre 14pt fazia a segunda linha cair por cima do que vem depois. O
+    // sintoma só aparece em nota longa, então passava despercebido até aparecer
+    // no meio de um bloco importante.
+    alturaNota = doc.heightOfString(nota, { width: LARGURA - 320 });
+    doc.text(nota, MARGEM + 320, y + 0.5, { width: LARGURA - 320 });
   }
-  doc.y = y + 14;
+  doc.y = y + Math.max(14, alturaNota + 4);
 }
 
 /** Cor de uma variação: verde sobe, vermelho desce, cinza quando não há base. */
@@ -376,6 +379,39 @@ function secaoDesconto(doc: Doc, d: DadosRelatorio) {
       'Somado aos outros dois, faz a política comercial parecer pior do que é.',
     TINTA3,
   );
+
+  if (v.cuponsMaisUsados.length) {
+    tabela(
+      doc,
+      ['Cupom mais usado', 'Pedidos', 'Valor'],
+      v.cuponsMaisUsados.map((c) => [c.codigo, numero(c.pedidos), dinheiro(c.valor)]),
+      [LARGURA - 160, 80, 80],
+      ['left', 'right', 'right'],
+    );
+  }
+
+  const tro = v.trocasDoDia;
+  titulo(doc, 'Trocas pagas no dia');
+  linha(doc, 'Pedidos de troca', numero(tro.total), 'fora do faturamento, por definição');
+  linha(
+    doc,
+    'Por cupom de troca',
+    numero(tro.porCupom.pedidos),
+    `${dinheiro(tro.porCupom.valor)} abatidos em cupom`,
+  );
+  linha(
+    doc,
+    'Troca direta',
+    numero(tro.direta.pedidos),
+    `${numero(tro.direta.pecas)} peças · ${dinheiro(tro.direta.valorAPrecoDeSite)} a preço de site`,
+  );
+  paragrafo(
+    doc,
+    'A troca direta chega do Troquecommerce com a peça a R$ 0,01, então o valor cobrado não diz nada. ' +
+      'O que aparece aqui é quanto aquelas peças custariam na loja — a medida do que saiu do estoque. ' +
+      'Só entram pedidos com pagamento confirmado no dia.',
+    TINTA3,
+  );
 }
 
 function secaoProdutos(doc: Doc, d: DadosRelatorio) {
@@ -392,6 +428,25 @@ function secaoProdutos(doc: Doc, d: DadosRelatorio) {
     ]),
     [LARGURA - 240, 80, 80, 80],
     ['left', 'right', 'right', 'right'],
+  );
+}
+
+function secaoCategorias(doc: Doc, d: DadosRelatorio) {
+  const cats = d.vendas.categorias;
+  if (!cats.length) return;
+  titulo(doc, 'Vendas por categoria');
+  tabela(
+    doc,
+    ['Categoria', 'Peças', '% das peças', 'Receita'],
+    cats.map((c) => [c.categoria, numero(c.pecas), pct(c.participacao), dinheiro(c.receita)]),
+    [LARGURA - 260, 80, 90, 90],
+    ['left', 'right', 'right', 'right'],
+  );
+  paragrafo(
+    doc,
+    'A categoria sai da primeira palavra do nome da peça. O productType está vazio na loja e a ' +
+      'taxonomia da Shopify se contradiz: "Blazer Filadélfia" é Sport Jackets e "Blazer Alemanha" é Blazers.',
+    TINTA3,
   );
 }
 
@@ -457,10 +512,13 @@ function secaoMidia(doc: Doc, d: DadosRelatorio) {
   }
 
   const gastoTotal = (m?.valorPago ?? 0) + (d.google?.valorPago ?? 0);
+  if (gastoTotal > 0) {
+    linha(doc, 'Total investido no dia', dinheiro(gastoTotal), 'Meta com imposto + Google');
+  }
   if (gastoTotal > 0 && d.vendas.receita > 0) {
     linha(
       doc,
-      'MER real',
+      'ROAS total',
       numero(d.vendas.receita / gastoTotal, 2),
       `mídia = ${pct(gastoTotal / d.vendas.receita)} da receita`,
     );
@@ -535,6 +593,34 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
     t.envelhecidas > 0 ? RUIM : TINTA,
   );
   linha(doc, 'Esperando a cliente postar há +7 dias', numero(t.travadas));
+
+  if (d.estornos) {
+    const e = d.estornos;
+    const dif = t.valorEstorno - e.valor;
+    linha(
+      doc,
+      'Reembolsado na Shopify',
+      dinheiro(e.valor),
+      `${numero(e.quantidade)} reembolso(s) processados no dia`,
+    );
+    linha(
+      doc,
+      'Diferença entre os dois sistemas',
+      dinheiro(Math.abs(dif)),
+      dif > 0
+        ? 'registrado como estorno no Troquecommerce sem saída na Shopify'
+        : dif < 0
+          ? 'saiu da Shopify além do registrado no Troquecommerce'
+          : 'os dois lados batem',
+      Math.abs(dif) >= 1 ? RUIM : TINTA,
+    );
+    paragrafo(
+      doc,
+      'Reversa finalizada no Troquecommerce não quer dizer que o dinheiro saiu. ' +
+        'A diferença entre os dois lados é o que nenhum painel sozinho mostra.',
+      TINTA3,
+    );
+  }
 
   if (t.motivos.length) {
     const total = t.motivos.reduce((s, m) => s + m.total, 0);
@@ -675,6 +761,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoVendas(doc, d);
     secaoDesconto(doc, d);
     secaoProdutos(doc, d);
+    secaoCategorias(doc, d);
     secaoTrafego(doc, d);
     secaoMidia(doc, d);
     secaoCampanhas(doc, d);

@@ -57,6 +57,26 @@ Cupom de troca nunca entra no desconto: é crédito de compra anterior, não
 concessão de preço. O seeding é custo de mídia, e misturá-lo com os outros dois
 faz a política comercial parecer pior do que é.
 
+**Categoria de produto**: a primeira palavra do nome da peça — Calça, Blazer,
+Casaco, Camisa, Colete, Regata, Blusa. Não use a taxonomia da Shopify: ela vem
+em inglês e se contradiz ("Blazer Filadélfia" é Sport Jackets, "Blazer Alemanha"
+é Blazers). A participação da categoria é sobre PEÇAS, não sobre receita.
+
+**Trocas do dia**: ficam fora do faturamento mas têm valor próprio, em duas
+mecânicas que não se misturam. Por cupom: a cliente usou um código TROCA numa
+compra nova, e o valor é o que o cupom abateu. Direta: o Troquecommerce cria o
+pedido com a peça a R$ 0,01, então o valor cobrado não diz nada — o que vale é o
+preço da peça na loja. Só contam pedidos com pagamento confirmado no dia;
+pagamento pendente não entra.
+
+**Total investido em mídia**: Meta com imposto + Google sem imposto. O ROAS
+total é o faturamento do dia dividido por esse total.
+
+**Estorno do dia**: o reembolso processado na Shopify, que é o dinheiro que de
+fato saiu. Não confundir com reversa finalizada no Troquecommerce — a diferença
+entre os dois lados é informação, não erro de leitura: normalmente significa
+estorno registrado sem pagamento correspondente.
+
 **Conversão**: sessões que concluíram checkout ÷ sessões (métrica nativa do
 Shopify). Ela já exclui troca e influencer por natureza, porque esses pedidos são
 criados fora da loja online.

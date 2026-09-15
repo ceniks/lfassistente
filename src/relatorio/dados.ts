@@ -5,6 +5,7 @@ import { metaDoDia } from '../data/metas.js';
 import { producaoAtual, type Producao } from '../data/producao.js';
 import { atendimentoAtual, type Atendimento } from '../data/atendimento.js';
 import { reversasDoDia, temTroque, type Reversas } from '../data/troque.js';
+import { estornosDoDia, type EstornosDoDia } from '../data/shopify.js';
 
 /**
  * O material do boletim completo.
@@ -46,6 +47,7 @@ export interface DadosRelatorio {
   producao: Producao | null;
   atendimento: Atendimento | null;
   reversas: Reversas | null;
+  estornos: EstornosDoDia | null;
   leitura?: string;
 }
 
@@ -98,8 +100,18 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
   const receitaTotal = somar(resumos, (r) => r.receita);
   const descontoTotal = somar(resumos, (r) => r.desconto.total);
 
-  const [trafego, trafegos7d, midia, campanhas, google, meta, producao, atendimento, reversas] =
-    await Promise.all([
+  const [
+    trafego,
+    trafegos7d,
+    midia,
+    campanhas,
+    google,
+    meta,
+    producao,
+    atendimento,
+    reversas,
+    estornos,
+  ] = await Promise.all([
       trafegoDoDia(dia),
       Promise.all(seteDias.map((d) => trafegoDoDia(d))),
       opcional('mídia', () => midiaDoDia(dia)),
@@ -109,6 +121,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       opcional('produção', () => producaoAtual()),
       opcional('atendimento', () => atendimentoAtual(dia)),
       opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
+      opcional('estornos', () => estornosDoDia(dia)),
     ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
@@ -141,5 +154,6 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     producao,
     atendimento,
     reversas,
+    estornos,
   };
 }

@@ -1,4 +1,4 @@
-import type { ResumoVendas, Trafego } from "../data/shopify.js";
+import type { EstornosDoDia, ResumoVendas, Trafego } from "../data/shopify.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
 import type { Atendimento } from "../data/atendimento.js";
@@ -89,6 +89,7 @@ export interface DadosResumo {
   producao?: Producao | null;
   atendimento?: Atendimento | null;
   reversas?: Reversas | null;
+  estornos?: EstornosDoDia | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -146,11 +147,40 @@ export function montarResumo(d: DadosResumo): string {
       ? `Seeding influencer ${dinheiro(v.desconto.seedingInfluencer)} · ${v.excluidos.influencers} pedidos`
       : "Seeding influencer: nenhum no dia",
   );
+
+  if (v.cuponsMaisUsados.length) {
+    desc.push(
+      "Cupons mais usados: " +
+        v.cuponsMaisUsados
+          .map((c) => `${c.codigo} ${numero(c.pedidos)}x (${dinheiro(c.valor)})`)
+          .join(" · "),
+    );
+  }
+
+  // Trocas entram aqui, e não no faturamento, porque não são venda nova. Mas o
+  // valor que elas carregam é dinheiro que saiu da loja e precisa ser visto.
+  const tro = v.trocasDoDia;
+  if (tro.total > 0) {
+    desc.push(`Trocas pagas no dia: ${numero(tro.total)} pedidos`);
+    if (tro.porCupom.pedidos > 0) {
+      desc.push(
+        `  por cupom ${numero(tro.porCupom.pedidos)} · ${dinheiro(tro.porCupom.valor)} em cupom`,
+      );
+    }
+    if (tro.direta.pedidos > 0) {
+      desc.push(
+        `  troca direta ${numero(tro.direta.pedidos)} · ${numero(tro.direta.pecas)} peças · ` +
+          `${dinheiro(tro.direta.valorAPrecoDeSite)} a preço de site`,
+      );
+    }
+  } else {
+    desc.push("Trocas pagas no dia: nenhuma");
+  }
   b.push(desc.join("\n"));
 
-  // --- Top 5 ---
+  // --- Top 10 ---
   if (v.topProdutos.length) {
-    const top = ["", "🏆 TOP 5 · peças vendidas"];
+    const top = ["", "🏆 TOP 10 · peças vendidas"];
     v.topProdutos.forEach((p, i) => {
       top.push(
         `${i + 1} ${p.titulo} — ${numero(p.pecas)} · ${dinheiro(p.receita)}`,
@@ -160,6 +190,17 @@ export function montarResumo(d: DadosResumo): string {
       `${numero(v.pecas)} peças / ${numero(v.pedidos)} pedidos = ${numero(v.pecasPorPedido, 2)} por pedido`,
     );
     b.push(top.join("\n"));
+  }
+
+  // --- Categorias ---
+  if (v.categorias.length) {
+    const cat = ["", "👗 POR CATEGORIA"];
+    for (const c of v.categorias) {
+      cat.push(
+        `${c.categoria} ${numero(c.pecas)} peças · ${pct(c.participacao)} · ${dinheiro(c.receita)}`,
+      );
+    }
+    b.push(cat.join("\n"));
   }
 
   // --- Tráfego ---
@@ -198,8 +239,12 @@ export function montarResumo(d: DadosResumo): string {
 
     const gastoTotal = m.valorPago + (d.google?.valorPago ?? 0);
     if (gastoTotal > 0) {
+      // O total investido é a linha que responde "quanto saiu do caixa hoje".
+      // Meta com imposto, Google sem — porque o valor da API do Google já é o
+      // cobrado. Somar os dois sem esse cuidado subestimaria o Meta em 13,8%.
+      mid.push(`Total investido ${dinheiro(gastoTotal)}`);
       mid.push(
-        `MER real ${numero(v.receita / gastoTotal, 2)} · mídia = ${pct(gastoTotal / v.receita)} da receita`,
+        `ROAS total ${numero(v.receita / gastoTotal, 2)} · mídia = ${pct(gastoTotal / v.receita)} da receita`,
       );
     }
     b.push(mid.join("\n"));
@@ -290,6 +335,22 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     if (t.travadas > 0) tr.push(`${numero(t.travadas)} esperando a cliente postar há +7 dias`);
+
+    // O confronto com a Shopify é o ponto: "finalizada" no Troquecommerce não
+    // quer dizer que o dinheiro saiu. A diferença entre os dois lados é o que
+    // ninguém enxerga olhando um painel só.
+    if (d.estornos) {
+      const e = d.estornos;
+      tr.push(`Reembolsado na Shopify: ${numero(e.quantidade)} · ${dinheiro(e.valor)}`);
+      const dif = t.valorEstorno - e.valor;
+      if (Math.abs(dif) >= 1) {
+        tr.push(
+          dif > 0
+            ? `⚠️ ${dinheiro(dif)} marcado como estorno no Troquecommerce sem saída na Shopify`
+            : `⚠️ ${dinheiro(-dif)} reembolsado na Shopify além do registrado no Troquecommerce`,
+        );
+      }
+    }
     b.push(tr.join("\n"));
   }
 

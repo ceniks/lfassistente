@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
+import { estornosDoDia, trafegoDoDia, vendasPorDia, type ResumoVendas } from '../data/shopify.js';
 import { midiaDoDia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
@@ -97,7 +97,8 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const vendasPorData = await vendasPorDia(todosOsDias);
   const vendas = vendasPorData.get(dia)!;
 
-  const [trafego, midia, google, meta, medias, producao, atendimento, reversas] = await Promise.all([
+  const [trafego, midia, google, meta, medias, producao, atendimento, reversas, estornos] =
+    await Promise.all([
     trafegoDoDia(dia),
     opcional('mídia', () => midiaDoDia(dia)),
     // Sem credencial do Google o bloco sai como "não conectado" em vez de
@@ -109,6 +110,9 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     opcional('produção', () => producaoAtual()),
     opcional('atendimento', () => atendimentoAtual(dia)),
     opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
+    // Varre os pedidos mexidos nos últimos dias para achar os reembolsos —
+    // é a única forma, já que a Shopify não filtra por data de refund.
+    opcional('estornos', () => estornosDoDia(dia)),
   ]);
 
   const dados: DadosResumo = {
@@ -124,6 +128,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     producao,
     atendimento,
     reversas,
+    estornos,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.
