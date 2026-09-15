@@ -16,3 +16,6 @@ lf-boletim-*.pdf
 # solto com token (troque.env, railway-vars.env) na pasta de trabalho.
 *.env
 !.env.example
+
+# pasta que o Claude usa para entregar arquivo; nada dali pertence ao repo
+Claude outputs/
