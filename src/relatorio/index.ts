@@ -1,6 +1,6 @@
 import { coletar } from './dados.js';
 import { gerarPdf, nomeDoArquivo } from './pdf.js';
-import { perguntarSemContexto } from '../agent/runner.js';
+import { redigir } from '../agent/redacao.js';
 import { PROMPT_RELATORIO } from '../agent/prompt.js';
 import { montarResumo } from '../digest/format.js';
 import { ontem } from '../digest/build.js';
@@ -42,8 +42,11 @@ export async function gerarBoletim(dia = ontem()): Promise<Boletim> {
       producao: dados.producao,
       atendimento: dados.atendimento,
       reversas: dados.reversas,
+      // Sem isso o modelo escreve a leitura do dia sem enxergar as
+      // divergências de estorno que o próprio documento lista uma página antes.
+      estornos: dados.estornos,
     });
-    dados.leitura = await perguntarSemContexto(`${PROMPT_RELATORIO}\n\n${contexto}`);
+    dados.leitura = await redigir(`${PROMPT_RELATORIO}\n\n${contexto}`);
   } catch (e) {
     console.error('[relatorio] leitura falhou, seguindo sem ela:', e);
   }

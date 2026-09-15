@@ -8,7 +8,7 @@ import { producaoAtual } from '../data/producao.js';
 import { atendimentoAtual } from '../data/atendimento.js';
 import { reversasDoDia, temTroque } from '../data/troque.js';
 import { montarResumo, type DadosResumo } from './format.js';
-import { perguntarSemContexto } from '../agent/runner.js';
+import { redigir } from '../agent/redacao.js';
 import { PROMPT_LEITURA } from '../agent/prompt.js';
 
 /** YYYY-MM-DD de ontem no fuso de São Paulo. */
@@ -143,7 +143,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const semLeitura = montarResumo(dados);
 
   try {
-    dados.leitura = await perguntarSemContexto(`${PROMPT_LEITURA}\n\n${semLeitura}`);
+    dados.leitura = await redigir(`${PROMPT_LEITURA}\n\n${semLeitura}`, 800);
   } catch (e) {
     console.error('[digest] leitura falhou, seguindo sem ela:', e);
     return semLeitura;
