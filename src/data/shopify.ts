@@ -1,5 +1,5 @@
 import { config, exigir } from '../config.js';
-import { categoria, type PedidoClassificavel } from './classify.js';
+import { categoria, norm, type PedidoClassificavel } from './classify.js';
 
 /* ------------------------------------------------------------------ *
  * Cliente
@@ -155,7 +155,16 @@ interface OrderNode extends PedidoClassificavel {
   subtotalPriceSet: { shopMoney: { amount: string } } | null;
   totalDiscountsSet: { shopMoney: { amount: string } } | null;
   transactions: Array<{ processedAt: string | null; kind: string; status: string }>;
-  lineItems: { nodes: Array<{ title: string; quantity: number }> };
+  lineItems: {
+    nodes: Array<{
+      title: string;
+      quantity: number;
+      discountAllocations?: Array<{
+        allocatedAmountSet: { shopMoney: { amount: string } };
+        discountApplication?: { __typename?: string; code?: string | null } | null;
+      }>;
+    }>;
+  };
 }
 
 export interface ResumoVendas {
@@ -193,7 +202,19 @@ const ORDERS_QUERY = `
         subtotalPriceSet { shopMoney { amount } }
         totalDiscountsSet { shopMoney { amount } }
         transactions(first: 10) { processedAt kind status }
-        lineItems(first: 50) { nodes { title quantity } }
+        lineItems(first: 50) {
+          nodes {
+            title
+            quantity
+            discountAllocations {
+              allocatedAmountSet { shopMoney { amount } }
+              discountApplication {
+                __typename
+                ... on DiscountCodeApplication { code }
+              }
+            }
+          }
+        }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -314,6 +335,58 @@ function emSaoPaulo(iso: string): string {
 const num = (v?: { shopMoney: { amount: string } } | null) => Number(v?.shopMoney.amount ?? 0);
 
 /**
+ * Separa o desconto de um pedido entre cupom de venda e promoção do site.
+ *
+ * Existe porque a conta ingênua — "tem cupom? então todo o desconto é cupom" —
+ * erra feio e sempre para o mesmo lado. A L&F quase sempre tem uma promoção
+ * automática rodando, e a cliente ainda aplica um cupom de 5% por cima. No
+ * pedido #138767 de 13/09, por exemplo, o desconto total foi R$ 232,39: R$
+ * 199,90 do "Compre 2 Leve 3" e só R$ 32,49 do cupom. A regra antiga creditava
+ * os R$ 232,39 inteiros ao cupom — sete vezes o valor real — e a linha de
+ * promoção automática aparecia vazia.
+ *
+ * A quebra certa vem das alocações por item, que a Shopify já calcula e que
+ * somam exatamente o desconto total do pedido.
+ *
+ * Cupom de troca não entra em lugar nenhum: é crédito de uma compra anterior,
+ * não concessão de preço. Na prática o pedido inteiro já foi excluído antes de
+ * chegar aqui, mas a regra fica explícita para o caso de um cupom de troca
+ * aparecer sozinho num pedido de venda.
+ */
+export function quebraDeDesconto(pedido: OrderNode): {
+  cupom: number;
+  promocaoAutomatica: number;
+} {
+  const total = num(pedido.totalDiscountsSet);
+  let cupom = 0;
+  let promocao = 0;
+  let alocado = 0;
+
+  for (const item of pedido.lineItems.nodes) {
+    for (const a of item.discountAllocations ?? []) {
+      const valor = Number(a.allocatedAmountSet?.shopMoney.amount ?? 0);
+      if (!valor) continue;
+      alocado += valor;
+
+      const app = a.discountApplication;
+      const codigo = norm(app?.code ?? '');
+
+      if (codigo.startsWith('troca')) continue; // crédito de troca, não desconto
+      if (app?.__typename === 'DiscountCodeApplication') cupom += valor;
+      else promocao += valor;
+    }
+  }
+
+  // Sobra: desconto que não apareceu em nenhuma alocação de item — frete
+  // descontado, por exemplo. Vai para promoção em vez de sumir, porque perder
+  // dinheiro em silêncio é pior que classificá-lo de forma conservadora.
+  const sobra = total - alocado;
+  if (sobra > 0.01) promocao += sobra;
+
+  return { cupom, promocaoAutomatica: promocao };
+}
+
+/**
  * Consolida os pedidos do dia num único objeto.
  *
  * Tudo — faturamento, ticket, desconto e top de produtos — sai de um loop só.
@@ -353,9 +426,9 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     const total = num(p.totalPriceSet);
     receita += total;
 
-    const desconto = num(p.totalDiscountsSet);
-    if (p.discountCodes.length > 0) descontoCupom += desconto;
-    else descontoPromo += desconto;
+    const q = quebraDeDesconto(p);
+    descontoCupom += q.cupom;
+    descontoPromo += q.promocaoAutomatica;
 
     const itensDoPedido = p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0);
     pecas += itensDoPedido;

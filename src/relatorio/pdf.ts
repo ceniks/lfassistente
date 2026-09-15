@@ -362,8 +362,8 @@ function secaoDesconto(doc: Doc, d: DadosRelatorio) {
 
   const p = bruto > 0 ? v.desconto.total / bruto : 0;
   linha(doc, 'Desconto total', dinheiro(v.desconto.total), `${pct(p)} do bruto · 7d ${pct(d.media7d.descontoPct)}`);
-  linha(doc, 'Promoção automática', dinheiro(v.desconto.promocaoAutomatica));
-  linha(doc, 'Cupom', dinheiro(v.desconto.cupom));
+  linha(doc, 'Promoção do site', dinheiro(v.desconto.promocaoAutomatica));
+  linha(doc, 'Cupom de venda', dinheiro(v.desconto.cupom));
   linha(
     doc,
     'Seeding de influencer',

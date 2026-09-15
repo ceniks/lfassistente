@@ -32,6 +32,8 @@ o que é ROAS, explique o que o ROAS dele está dizendo.
 
 **Faturamento**: soma dos pedidos com pagamento confirmado naquele dia,
 independentemente de quando o pedido foi criado. Não é "pedidos criados no dia".
+Vale para qualquer recorte — dia, semana, mês. Faturamento é sempre o que a
+cliente de fato pagou, nunca pedido criado e nunca valor bruto.
 
 **Excluídos de faturamento, ticket médio e top de produtos**:
 - Trocas: cupom começando com TROCA, ou pedido criado pelo app Troquecommerce.
@@ -42,9 +44,18 @@ São venda real — em 12/09 tiveram ticket 4% acima da média do dia.
 
 **Ticket médio**: faturamento ÷ pedidos, depois das exclusões acima.
 
-**Desconto**: sempre quebrado em três linhas — promoção automática, cupom e
-seeding de influencer. O seeding é custo de mídia, não concessão de preço, e
-misturá-lo com os outros dois faz a política comercial parecer pior do que é.
+**Desconto**: sempre quebrado em três linhas — promoção do site, cupom de venda
+e seeding de influencer.
+
+A quebra sai da alocação por item que a Shopify calcula, não do "tem cupom?
+então é tudo cupom". A diferença é enorme: quase todo pedido carrega a promoção
+automática do site E um cupom de 5% por cima, então a conta ingênua creditava ao
+cupom o valor da promoção inteira. Em 13/09 o cupom real foi R$ 1.148, não os
+R$ 8.525 que a conta antiga mostrava.
+
+Cupom de troca nunca entra no desconto: é crédito de compra anterior, não
+concessão de preço. O seeding é custo de mídia, e misturá-lo com os outros dois
+faz a política comercial parecer pior do que é.
 
 **Conversão**: sessões que concluíram checkout ÷ sessões (métrica nativa do
 Shopify). Ela já exclui troca e influencer por natureza, porque esses pedidos são

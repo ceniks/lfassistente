@@ -139,8 +139,8 @@ export function montarResumo(d: DadosResumo): string {
   desc.push(
     `${pct(bruto > 0 ? v.desconto.total / bruto : 0)} do bruto (7d: ${pct(d.vendasMedia7d.descontoPct)})`,
   );
-  desc.push(`Promoção automática ${dinheiro(v.desconto.promocaoAutomatica)}`);
-  desc.push(`Cupom ${dinheiro(v.desconto.cupom)}`);
+  desc.push(`Promoção do site ${dinheiro(v.desconto.promocaoAutomatica)}`);
+  desc.push(`Cupom de venda ${dinheiro(v.desconto.cupom)}`);
   desc.push(
     v.desconto.seedingInfluencer > 0
       ? `Seeding influencer ${dinheiro(v.desconto.seedingInfluencer)} · ${v.excluidos.influencers} pedidos`
