@@ -277,8 +277,13 @@ const FOLGA_PAGAMENTO = 7;
  */
 export async function pedidosCriadosEntre(de: string, ate: string): Promise<OrderNode[]> {
   const q = [
-    `created_at:>=${de}T00:00:00-03:00`,
-    `created_at:<=${ate}T23:59:59-03:00`,
+    // As aspas não são estilo: sem elas a busca da Shopify trata o "-03:00" do
+    // fuso como operador de negação e engole pedidos em silêncio. Medido em
+    // 14/09/2026: 146 pedidos sem aspas contra 147 com aspas — o #139013
+    // simplesmente não voltava. Errar para menos no faturamento, sem erro
+    // nenhum aparecendo, é o pior defeito possível neste arquivo.
+    `created_at:>='${de}T00:00:00-03:00'`,
+    `created_at:<='${ate}T23:59:59-03:00'`,
     'financial_status:paid',
   ].join(' ');
 
@@ -619,7 +624,17 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
 
 export interface Estorno {
   pedido: string;
+  /** Reembolso liquidado: o dinheiro saiu. */
   valor: number;
+  /**
+   * Reembolso emitido e ainda não liquidado pelo adquirente.
+   *
+   * Não é detalhe contábil. O #130087 de 14/09 tem um reembolso de R$ 593,87
+   * com a transação `PENDING` no PagBank: para quem olha o painel, o pedido
+   * "foi reembolsado"; para a API, `totalRefunded` é R$ 0,00 e o pedido segue
+   * como PAID. Tratar isso como "não houve reembolso" produz divergência falsa.
+   */
+  pendente: number;
   /** Momento do reembolso, em ISO. */
   em: string;
 }
@@ -627,17 +642,24 @@ export interface Estorno {
 export interface EstornosDoDia {
   quantidade: number;
   valor: number;
+  pendente: number;
   lista: Estorno[];
 }
 
 const REFUNDS_QUERY = `
   query Reembolsos($q: String!, $cursor: String) {
-    orders(first: 50, query: $q, after: $cursor, sortKey: UPDATED_AT) {
+    orders(first: 100, query: $q, after: $cursor, sortKey: UPDATED_AT) {
       nodes {
         name
         refunds(first: 20) {
           createdAt
-          totalRefundedSet { shopMoney { amount } }
+          transactions(first: 10) {
+            nodes {
+              kind
+              status
+              amountSet { shopMoney { amount } }
+            }
+          }
         }
       }
       pageInfo { hasNextPage endCursor }
@@ -663,6 +685,7 @@ export async function estornosDoDia(dia: string): Promise<EstornosDoDia> {
   return {
     quantidade: lista.length,
     valor: lista.reduce((s, e) => s + e.valor, 0),
+    pendente: lista.reduce((s, e) => s + e.pendente, 0),
     lista,
   };
 }
@@ -683,21 +706,33 @@ export async function estornosEntre(
   const inicio = new Date(`${de}T12:00:00-03:00`);
   inicio.setDate(inicio.getDate() - folga);
 
-  // O filtro de status é o que torna a busca viável. Sem ele, a janela de duas
-  // semanas devolve 3.406 pedidos; com ele, 134 — e a paginação deixa de ser um
-  // risco. Antes desse filtro a varredura estourava o limite de páginas e
-  // truncava em silêncio, o que produzia divergências inventadas no
-  // confronto com o Troquecommerce: reembolso que existia aparecia como
-  // ausente só porque a página onde ele estava nunca foi lida.
+  // Sem teto na janela, e isso não é descuido.
+  //
+  // A busca é por `updated_at` porque a Shopify não filtra por data de refund.
+  // Um pedido reembolsado no dia 14 e mexido de novo no 15 tem `updated_at` no
+  // dia 15 e desaparece de uma janela que termina no 14 — foi exatamente o que
+  // aconteceu com o #135727. O recorte por data do reembolso é feito em
+  // memória, então deixar a janela correr até hoje só custa páginas.
+  //
+  // Também não dá para filtrar por `financial_status`: reembolso com transação
+  // pendente deixa o pedido como PAID, e o filtro o esconderia justamente no
+  // caso que mais confunde.
   const q = [
-    `updated_at:>=${inicio.toISOString().slice(0, 10)}T00:00:00-03:00`,
-    `updated_at:<=${ate}T23:59:59-03:00`,
-    '(financial_status:refunded OR financial_status:partially_refunded)',
+    `updated_at:>='${inicio.toISOString().slice(0, 10)}T00:00:00-03:00'`,
   ].join(' ');
 
   interface Node {
     name: string;
-    refunds: Array<{ createdAt: string; totalRefundedSet: { shopMoney: { amount: string } } | null }>;
+    refunds: Array<{
+      createdAt: string;
+      transactions?: {
+        nodes: Array<{
+          kind: string;
+          status: string;
+          amountSet: { shopMoney: { amount: string } } | null;
+        }>;
+      } | null;
+    }>;
   }
   interface Pagina {
     orders: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
@@ -714,9 +749,21 @@ export async function estornosEntre(
       for (const r of pedido.refunds ?? []) {
         const diaDoRefund = emSaoPaulo(r.createdAt);
         if (diaDoRefund < de || diaDoRefund > ate) continue;
-        const valor = Number(r.totalRefundedSet?.shopMoney.amount ?? 0);
-        if (!valor) continue;
-        lista.push({ pedido: pedido.name, valor, em: r.createdAt });
+
+        // O valor sai das transações, não de `totalRefundedSet`: aquele campo
+        // conta só o que o adquirente liquidou, e zera um reembolso emitido que
+        // ainda está pendente.
+        let liquidado = 0;
+        let pendente = 0;
+        for (const tr of r.transactions?.nodes ?? []) {
+          if (tr.kind !== 'REFUND') continue;
+          const v = Number(tr.amountSet?.shopMoney.amount ?? 0);
+          if (tr.status === 'SUCCESS') liquidado += v;
+          else if (tr.status === 'PENDING') pendente += v;
+        }
+
+        if (!liquidado && !pendente) continue;
+        lista.push({ pedido: pedido.name, valor: liquidado, pendente, em: r.createdAt });
       }
     }
     if (!d.orders.pageInfo.hasNextPage) {
@@ -736,7 +783,7 @@ export async function estornosEntre(
     );
   }
 
-  lista.sort((a, b) => b.valor - a.valor);
+  lista.sort((a, b) => b.valor + b.pendente - (a.valor + a.pendente));
   return lista;
 }
 

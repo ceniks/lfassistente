@@ -43,7 +43,7 @@ export interface DivergenciaDeValor {
 export interface Conciliacao {
   de: string;
   ate: string;
-  shopify: { quantidade: number; valor: number };
+  shopify: { quantidade: number; valor: number; pendente: number };
   troque: { quantidade: number; valor: number };
   aguardandoPagamento: { quantidade: number; valor: number };
   soShopify: DivergenciaSimples[];
@@ -121,7 +121,7 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
       const outras = qualquerPorPedido.get(k) ?? [];
       soShopify.push({
         pedido: e.pedido,
-        valor: e.valor,
+        valor: e.valor + e.pendente,
         situacao: outras.length
           ? `reversa existe mas está "${outras[0].status}"`
           : 'nenhuma reversa no Troquecommerce',
@@ -131,13 +131,15 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
 
     usados.add(k);
     const soma = pares.reduce((s, r) => s + (r.refund_value ?? 0), 0);
-    const dif = e.valor - soma;
+    // Para o confronto, reembolso emitido conta mesmo se o adquirente ainda não
+    // liquidou: a decisão já foi tomada do lado da loja.
+    const dif = e.valor + e.pendente - soma;
     if (Math.abs(dif) < TOLERANCIA) {
       batem++;
     } else {
       valorDiferente.push({
         pedido: e.pedido,
-        shopify: e.valor,
+        shopify: e.valor + e.pendente,
         troque: soma,
         diferenca: dif,
         reversaEm: (pares[0].updated_at ?? pares[0].created_at).slice(0, 10),
@@ -166,7 +168,11 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
   return {
     de,
     ate,
-    shopify: { quantidade: noPeriodo.length, valor: somar(noPeriodo, (e) => e.valor) },
+    shopify: {
+      quantidade: noPeriodo.length,
+      valor: somar(noPeriodo, (e) => e.valor),
+      pendente: somar(noPeriodo, (e) => e.pendente),
+    },
     troque: {
       quantidade: troqueNoPeriodo.length,
       valor: somar(troqueNoPeriodo, (r) => r.refund_value ?? 0),

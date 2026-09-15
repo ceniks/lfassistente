@@ -28,7 +28,10 @@ if (!temTroque()) {
 const c = await conferirEstorno(de, ate);
 
 console.log(`\nConferência de estorno · ${de === ate ? de : `${de} a ${ate}`}\n`);
-console.log(`Shopify no período:        ${c.shopify.quantidade} reembolso(s) · ${dinheiro(c.shopify.valor)}`);
+console.log(
+  `Shopify no período:        ${c.shopify.quantidade} reembolso(s) · ${dinheiro(c.shopify.valor)} liquidado` +
+    (c.shopify.pendente > 0 ? ` · ${dinheiro(c.shopify.pendente)} emitido e pendente no adquirente` : ''),
+);
 console.log(
   `Troquecommerce no período: ${c.troque.quantidade} reversa(s) finalizada(s) com estorno · ${dinheiro(c.troque.valor)}`,
 );
