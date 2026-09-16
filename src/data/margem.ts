@@ -23,6 +23,10 @@ export interface Margem {
   margemBruta: number;
   midia: number;
   taxaDePagamento: number;
+  /** Em quantas parcelas o cartão foi calculado — é parâmetro, não medição. */
+  parcelasUsadas: number;
+  /** Comissão da Shopify sobre a venda. */
+  taxaDaPlataforma: number;
   custoDeFrete: number;
   freteCobrado: number;
   /** Peças dadas em seeding, a custo. Saiu do caixa e não é mídia declarada. */
@@ -33,13 +37,35 @@ export interface Margem {
   parametrosFaltando: string[];
 }
 
+/**
+ * Taxa do cartão por número de parcelas, tabela do PagBank de 16/09/2026.
+ *
+ * Débito é zero e por isso tem caminho próprio; à vista é o índice 1.
+ */
+const TAXA_POR_PARCELA: Record<number, number> = {
+  1: 3.15,
+  2: 3.78,
+  3: 4.36,
+  4: 4.94,
+  5: 5.52,
+  6: 6.09,
+  7: 6.82,
+  8: 7.38,
+  9: 7.94,
+  10: 8.5,
+};
+
 /** "PagBank - Cartão de Crédito" → cartão; "Mercado Pago Pix" → pix. */
 function taxaDoGateway(gateway: string): number {
   const c = config();
   const g = gateway.toLowerCase();
+
   if (g.includes('pix')) return c.TAXA_PIX_PCT / 100;
   if (g.includes('boleto')) return c.TAXA_BOLETO_PCT / 100;
-  return c.TAXA_CARTAO_PCT / 100;
+  if (g.includes('débito') || g.includes('debito')) return 0;
+
+  if (c.TAXA_CARTAO_PCT > 0) return c.TAXA_CARTAO_PCT / 100;
+  return (TAXA_POR_PARCELA[c.PARCELAS_MEDIAS] ?? TAXA_POR_PARCELA[1]) / 100;
 }
 
 export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
@@ -72,16 +98,14 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     0,
   );
 
+  const taxaDaPlataforma = vendas.receita * (c.TAXA_PLATAFORMA_PCT / 100);
   const custoDeFrete = c.CUSTO_FRETE_POR_PEDIDO * vendas.pedidos;
 
   const margemBruta = vendas.receita - cmv;
   const margemDeContribuicao =
-    margemBruta - midia - taxaDePagamento - custoDeFrete - custoDoSeeding;
+    margemBruta - midia - taxaDePagamento - taxaDaPlataforma - custoDeFrete - custoDoSeeding;
 
   const parametrosFaltando: string[] = [];
-  if (!c.TAXA_CARTAO_PCT && !c.TAXA_PIX_PCT && !c.TAXA_BOLETO_PCT) {
-    parametrosFaltando.push('taxa do meio de pagamento');
-  }
   if (!c.CUSTO_FRETE_POR_PEDIDO) parametrosFaltando.push('custo do frete');
 
   return {
@@ -92,6 +116,8 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     margemBruta,
     midia,
     taxaDePagamento,
+    parcelasUsadas: c.TAXA_CARTAO_PCT > 0 ? 0 : c.PARCELAS_MEDIAS,
+    taxaDaPlataforma,
     custoDeFrete,
     freteCobrado: vendas.freteCobrado,
     custoDoSeeding,

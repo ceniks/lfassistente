@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import type { DadosRelatorio } from './dados.js';
 import { dinheiro, dinheiroExato, pct, numero, variacao, dataPorExtenso } from '../digest/format.js';
 import { reposicao } from '../data/cobertura.js';
+import { config } from '../config.js';
 
 /**
  * O boletim completo em PDF.
@@ -601,9 +602,15 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
   linha(
     doc,
     '(-) Taxa de pagamento',
-    m.taxaDePagamento > 0 ? dinheiro(m.taxaDePagamento) : 'não configurada',
-    m.taxaDePagamento > 0 ? daReceita(m.taxaDePagamento) : 'parâmetro em branco',
-    m.taxaDePagamento > 0 ? TINTA : RUIM,
+    dinheiro(m.taxaDePagamento),
+    `${daReceita(m.taxaDePagamento)} da receita` +
+      (m.parcelasUsadas ? ` · cartão calculado em ${numero(m.parcelasUsadas)}x` : ''),
+  );
+  linha(
+    doc,
+    '(-) Taxa da plataforma',
+    dinheiro(m.taxaDaPlataforma),
+    `${numero(config().TAXA_PLATAFORMA_PCT, 2)}% da Shopify por usar gateway externo`,
   );
   linha(
     doc,
@@ -636,8 +643,9 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
       (m.parametrosFaltando.length
         ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem acima está ` +
           'otimista nesses pontos — o número real é menor.'
-        : 'Taxa de pagamento e frete são parâmetros, não medições: a Shopify não devolve a taxa ' +
-          'do PagBank nem do Mercado Pago, e o custo do frete está na fatura dos Correios.'),
+        : 'A taxa do cartão depende do parcelamento e a Shopify não informa em quantas parcelas ' +
+          'a cliente pagou — só bandeira e final do cartão. Por isso o cálculo usa um número ' +
+          'médio de parcelas, e ele é parâmetro, não medição.'),
     TINTA3,
   );
 }
