@@ -361,11 +361,19 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
     );
   }
 
-  if (v.excluidos.trocas || v.excluidos.influencers) {
+  if (v.excluidos.trocas || v.excluidos.influencers || v.excluidos.reenvios) {
+    const fora = [
+      v.excluidos.trocas ? `${v.excluidos.trocas} troca(s)` : '',
+      v.excluidos.influencers ? `${v.excluidos.influencers} de influencer` : '',
+      v.excluidos.reenvios ? `${v.excluidos.reenvios} reenvio(s)` : '',
+    ].filter(Boolean);
+
     paragrafo(
       doc,
-      `Fora da conta: ${v.excluidos.trocas} troca(s) e ${v.excluidos.influencers} pedido(s) de influencer. ` +
-        'Trocas e seeding não são venda nova — entram no bloco de trocas, não aqui.',
+      `Fora da conta: ${fora.join(', ')}. Nenhum é venda nova: troca e seeding entram nos seus ` +
+        'próprios blocos, e reenvio é peça mandada de novo sem cobrança. O seeding é reconhecido ' +
+        'pelo cupom FRETEINFLUENCERS, não pela tag — a tag varia (Influencer, MS, MS OUTUBRO) e ' +
+        'deixava metade dos pedidos passando como venda.',
       TINTA3,
     );
   }

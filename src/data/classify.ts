@@ -76,19 +76,40 @@ export function isTroca(pedido: PedidoClassificavel): boolean {
 }
 
 /**
- * Influencer: pedido de seeding, marcado com a tag `Influencer` no momento da
- * criação. Sai com valor zero e carrega "Desconto personalizado" +
- * FRETEINFLUENCERS.
+ * Influencer: pedido de seeding.
  *
- * A distância ≤ 2 cobre erro de digitação sem depender da busca do Shopify, que
- * não faz prefixo em tag. Em 90 dias não apareceu nenhuma variação de grafia —
- * a tolerância é seguro, não remendo.
+ * O sinal principal é o cupom **FRETEINFLUENCERS**, não a tag. Medido em
+ * 01–15/09: 70 pedidos de valor zero, todos Draft Orders, 68 com esse cupom —
+ * mas só 32 com a tag `Influencer`. Os outros saíram como `MS` (21), `MS
+ * OUTUBRO` (6), `Mirelawhats` (2) ou sem tag nenhuma (7). Confiar na tag
+ * classificava metade do seeding como venda comum.
+ *
+ * A tag continua valendo em paralelo, com distância ≤ 2 para erro de digitação:
+ * existe ao menos um pedido com a tag e sem o cupom (#137936).
  */
 export function isInfluencer(pedido: PedidoClassificavel): boolean {
+  const temCupomDeSeeding = pedido.discountCodes.some((c) =>
+    norm(c).replace(/\s+/g, '').startsWith('freteinfluencer'),
+  );
+  if (temCupomDeSeeding) return true;
+
   return pedido.tags.some((t) => {
     const n = norm(t);
     return n === 'influencer' || levenshtein(n, 'influencer') <= 2;
   });
+}
+
+/**
+ * Reenvio: peça mandada de novo para a cliente, sem cobrança.
+ *
+ * Aparece como pedido de R$ 0 com um "cupom" que é na verdade uma anotação —
+ * "Envio referente ao numero de pedido 131917/ao remetente". Não é venda (não
+ * entrou dinheiro), não é troca (não passou pelo TroqueCommerce) e não é
+ * seeding. Sem uma categoria própria, entrava como venda de R$ 0 e puxava o
+ * ticket médio para baixo.
+ */
+export function isReenvio(pedido: PedidoClassificavel): boolean {
+  return pedido.discountCodes.some((c) => norm(c).startsWith('envio referente'));
 }
 
 /**
@@ -102,13 +123,14 @@ export function isInfluencer(pedido: PedidoClassificavel): boolean {
  * contra R$ 550,41 do dia.
  */
 export function contaNoFaturamento(pedido: PedidoClassificavel): boolean {
-  return !isTroca(pedido) && !isInfluencer(pedido);
+  return !isTroca(pedido) && !isInfluencer(pedido) && !isReenvio(pedido);
 }
 
-export type Categoria = 'venda' | 'troca' | 'influencer';
+export type Categoria = 'venda' | 'troca' | 'influencer' | 'reenvio';
 
 export function categoria(pedido: PedidoClassificavel): Categoria {
   if (isInfluencer(pedido)) return 'influencer';
   if (isTroca(pedido)) return 'troca';
+  if (isReenvio(pedido)) return 'reenvio';
   return 'venda';
 }

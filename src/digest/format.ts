@@ -141,11 +141,12 @@ export function montarResumo(d: DadosResumo): string {
     }
   }
 
-  if (v.excluidos.trocas || v.excluidos.influencers) {
+  if (v.excluidos.trocas || v.excluidos.influencers || v.excluidos.reenvios) {
     const fora: string[] = [];
     if (v.excluidos.trocas) fora.push(`${v.excluidos.trocas} troca(s)`);
     if (v.excluidos.influencers)
       fora.push(`${v.excluidos.influencers} influencer`);
+    if (v.excluidos.reenvios) fora.push(`${v.excluidos.reenvios} reenvio(s)`);
     linhas.push(`Fora da conta: ${fora.join(" · ")}`);
   }
   b.push(linhas.join("\n"));

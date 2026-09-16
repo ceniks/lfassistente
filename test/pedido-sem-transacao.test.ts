@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agruparPorDiaDePagamento } from '../src/data/shopify.js';
+import { categoria } from '../src/data/classify.js';
 
 /**
  * O seeding de influencer sai a R$ 0 e a Shopify marca o pedido como pago sem
@@ -46,5 +47,32 @@ describe('dia do pagamento', () => {
       transactions: [{ kind: 'SALE', status: 'PENDING', processedAt: '2026-09-15T13:27:44Z' }],
     });
     expect(agruparPorDiaDePagamento([p]).size).toBe(0);
+  });
+});
+
+describe('classificação de seeding e reenvio', () => {
+  const p = (extra: Record<string, unknown>) =>
+    ({ name: '#1', app: { name: 'Draft Orders' }, discountCodes: [], tags: [], ...extra }) as never;
+
+  it('reconhece seeding pelo cupom mesmo com tag de campanha', () => {
+    expect(
+      categoria(p({ tags: ['MS OUTUBRO'], discountCodes: ['Desconto personalizado', 'FRETEINFLUENCERS'] })),
+    ).toBe('influencer');
+  });
+
+  it('reconhece seeding pela tag mesmo sem o cupom', () => {
+    expect(categoria(p({ tags: ['Influencer'], discountCodes: ['Desconto personalizado'] }))).toBe(
+      'influencer',
+    );
+  });
+
+  it('separa o reenvio da venda', () => {
+    expect(
+      categoria(p({ discountCodes: ['Envio referente ao numero de pedido 131917/ao remetente.'] })),
+    ).toBe('reenvio');
+  });
+
+  it('não confunde venda com tag de vendedora', () => {
+    expect(categoria(p({ tags: ['Mayara'], discountCodes: [] }))).toBe('venda');
   });
 });

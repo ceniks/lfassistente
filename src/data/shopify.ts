@@ -239,7 +239,7 @@ export interface ResumoVendas {
     promocaoAutomatica: number;
     seedingInfluencer: number;
   };
-  excluidos: { trocas: number; influencers: number };
+  excluidos: { trocas: number; influencers: number; reenvios: number };
   cuponsMaisUsados: CupomUsado[];
   categorias: CategoriaVendida[];
   trocasDoDia: TrocasDoDia;
@@ -601,6 +601,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   let seeding = 0;
   let trocas = 0;
   let influencers = 0;
+  let reenvios = 0;
 
   const porProduto = new Map<string, { pecas: number; receita: number }>();
   const porCategoria = new Map<string, { pecas: number; receita: number }>();
@@ -621,6 +622,11 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       // R$ 960 de desconto por pedido, e isso NÃO é concessão de preço — é
       // custo de mídia. Por isso vai em linha própria no resumo.
       seeding += num(p.totalDiscountsSet);
+      continue;
+    }
+
+    if (cat === 'reenvio') {
+      reenvios++;
       continue;
     }
 
@@ -729,7 +735,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       promocaoAutomatica: descontoPromo,
       seedingInfluencer: seeding,
     },
-    excluidos: { trocas, influencers },
+    excluidos: { trocas, influencers, reenvios },
     cuponsMaisUsados,
     categorias,
     trocasDoDia: troca,
