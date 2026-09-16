@@ -944,7 +944,19 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
       (t.aberturasPorTipo.sem_reembolso ? ` · ${t.aberturasPorTipo.sem_reembolso} sem reembolso` : ''),
   );
   linha(doc, 'Concluídas no dia', numero(t.concluidas), `${numero(t.canceladas)} canceladas`);
-  linha(doc, 'Diferença recebida', dinheiro(t.valorTroca), 'o que a cliente pagou a mais na troca');
+  // `exchange_value` do TroqueCommerce NÃO é a diferença paga.
+  //
+  // Conferido no #135523: três peças devolvidas, duas trocadas por um número
+  // menor do mesmo modelo e a terceira virada em cupom — a cliente não pagou
+  // nada, e o campo marcava R$ 649,80. Ele é o valor líquido das peças
+  // envolvidas, não dinheiro que entrou. A diferença de verdade é o total dos
+  // pedidos novos, que já saem com o cupom de troca abatido.
+  linha(
+    doc,
+    'Diferença paga pelas clientes',
+    dinheiro(d.vendas.trocasDoDia.porCupom.diferencaPaga),
+    `${numero(d.vendas.trocasDoDia.porCupom.pedidos)} pedido(s) de troca pagos no dia, já com o cupom abatido`,
+  );
   linha(doc, 'Estornado', dinheiro(t.valorEstorno), `retido em crédito ${dinheiro(t.valorRetido)}`);
   linha(
     doc,

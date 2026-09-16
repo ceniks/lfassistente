@@ -469,7 +469,9 @@ export function montarResumo(d: DadosResumo): string {
     );
     tr.push(
       `${numero(t.concluidas)} ${t.concluidas === 1 ? "concluída" : "concluídas"} · ${numero(t.canceladas)} canceladas` +
-        (t.valorTroca > 0 ? ` · ${dinheiro(t.valorTroca)} em diferença` : ""),
+        (d.vendas.trocasDoDia.porCupom.diferencaPaga > 0
+          ? ` · ${dinheiro(d.vendas.trocasDoDia.porCupom.diferencaPaga)} de diferença paga`
+          : ""),
     );
     if (t.valorEstorno > 0 || t.valorRetido > 0) {
       tr.push(`Estornado ${dinheiro(t.valorEstorno)} · retido em crédito ${dinheiro(t.valorRetido)}`);

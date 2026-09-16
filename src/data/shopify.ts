@@ -285,7 +285,13 @@ export interface CategoriaVendida {
  */
 export interface TrocasDoDia {
   total: number;
-  porCupom: { pedidos: number; valor: number };
+  porCupom: {
+    pedidos: number;
+    /** Quanto de cupom de troca foi abatido. */
+    valor: number;
+    /** O que a cliente pagou além do cupom — a diferença de verdade. */
+    diferencaPaga: number;
+  };
   direta: { pedidos: number; pecas: number; valorAPrecoDeSite: number };
 }
 
@@ -787,7 +793,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
 
   const troca = {
     total: 0,
-    porCupom: { pedidos: 0, valor: 0 },
+    porCupom: { pedidos: 0, valor: 0, diferencaPaga: 0 },
     direta: { pedidos: 0, pecas: 0, valorAPrecoDeSite: 0 },
   };
 
@@ -829,6 +835,10 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
         }
       } else {
         troca.porCupom.pedidos++;
+        // O que a cliente pagou além do cupom. É esta a diferença de troca:
+        // o pedido novo já sai com o cupom abatido, então o total é o que
+        // saiu do bolso dela.
+        troca.porCupom.diferencaPaga += num(p.totalPriceSet);
         for (const item of p.lineItems.nodes) {
           for (const a of item.discountAllocations ?? []) {
             if (norm(a.discountApplication?.code ?? '').startsWith('troca')) {
