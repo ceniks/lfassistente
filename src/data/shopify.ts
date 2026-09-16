@@ -837,6 +837,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
        * O `reverse_type` da API não separa os dois — ele devolve "Troca",
        * "Devolução", "Sem Reembolso" e "Troca e devolução". Quem separa é o
        * pedido gerado, e é por isso que a classificação mora aqui.
+       */
       if (norm(p.app?.name ?? '').includes('troque')) {
         troca.direta.pedidos++;
         for (const item of p.lineItems.nodes) {
