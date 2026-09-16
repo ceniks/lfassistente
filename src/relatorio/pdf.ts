@@ -590,24 +590,24 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
   linha(doc, 'Receita', dinheiro(m.receita));
   linha(
     doc,
-    '(−) Custo das peças',
+    '(-) Custo das peças',
     dinheiro(m.cmv),
     `${daReceita(m.cmv)} da receita · ${numero(m.pecasComCusto)} peças` +
       (m.pecasSemCusto > 0 ? ` · ${numero(m.pecasSemCusto)} sem custo conhecido` : ''),
   );
   linha(doc, '(=) Margem bruta', dinheiro(m.margemBruta), daReceita(m.margemBruta), BOM);
 
-  linha(doc, '(−) Mídia', dinheiro(m.midia), `${daReceita(m.midia)} da receita`);
+  linha(doc, '(-) Mídia', dinheiro(m.midia), `${daReceita(m.midia)} da receita`);
   linha(
     doc,
-    '(−) Taxa de pagamento',
+    '(-) Taxa de pagamento',
     m.taxaDePagamento > 0 ? dinheiro(m.taxaDePagamento) : 'não configurada',
     m.taxaDePagamento > 0 ? daReceita(m.taxaDePagamento) : 'parâmetro em branco',
     m.taxaDePagamento > 0 ? TINTA : RUIM,
   );
   linha(
     doc,
-    '(−) Frete',
+    '(-) Frete',
     m.custoDeFrete > 0 ? dinheiro(m.custoDeFrete) : 'não configurado',
     `cobrado da cliente: ${dinheiro(m.freteCobrado)}`,
     m.custoDeFrete > 0 ? TINTA : RUIM,
@@ -615,7 +615,7 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
   if (m.pecasDeSeeding > 0) {
     linha(
       doc,
-      '(−) Peças de seeding',
+      '(-) Peças de seeding',
       dinheiro(m.custoDoSeeding),
       `${numero(m.pecasDeSeeding)} peças a custo — saiu do estoque, não da verba de mídia`,
     );
@@ -634,7 +634,7 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     'Contribuição, não lucro: falta o custo fixo — salários, aluguel, sistemas — que não é ' +
       'diário. O custo das peças vem do Corte Pro, do corte mais recente de cada modelo. ' +
       (m.parametrosFaltando.length
-        ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem abaixo está ` +
+        ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem acima está ` +
           'otimista nesses pontos — o número real é menor.'
         : 'Taxa de pagamento e frete são parâmetros, não medições: a Shopify não devolve a taxa ' +
           'do PagBank nem do Mercado Pago, e o custo do frete está na fatura dos Correios.'),
