@@ -1045,6 +1045,16 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
   return saida;
 }
 
+export interface CheckoutAbandonado {
+  /** Só a parte numérica do gid, que é como o AtendePro às vezes guarda. */
+  id: string;
+  /** O trecho `/checkouts/ac/<token>/` da URL de recuperação. */
+  token: string | null;
+  temTelefone: boolean;
+  valor: number;
+  criadoEm: string;
+}
+
 export interface CheckoutsAbandonados {
   total: number;
   comTelefone: number;
@@ -1063,6 +1073,70 @@ export interface CheckoutsAbandonados {
  * cliente. Olhar só `customer.phone` daria "quase ninguém tem telefone", que é
  * falso.
  */
+export async function checkoutsAbandonadosDetalhados(
+  dia: string,
+): Promise<CheckoutAbandonado[]> {
+  interface Pagina {
+    abandonedCheckouts: {
+      nodes: Array<{
+        id: string;
+        createdAt: string;
+        abandonedCheckoutUrl: string | null;
+        totalPriceSet: { shopMoney: { amount: string } } | null;
+        customer: { phone: string | null } | null;
+        billingAddress: { phone: string | null } | null;
+        shippingAddress: { phone: string | null } | null;
+      }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
+  }
+
+  const query = `
+    query Abandonados($q: String!, $cursor: String) {
+      abandonedCheckouts(first: 100, query: $q, after: $cursor, sortKey: CREATED_AT) {
+        nodes {
+          id
+          createdAt
+          abandonedCheckoutUrl
+          totalPriceSet { shopMoney { amount } }
+          customer { phone }
+          billingAddress { phone }
+          shippingAddress { phone }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  `;
+
+  const q = [
+    `created_at:>='${dia}T00:00:00-03:00'`,
+    `created_at:<='${dia}T23:59:59-03:00'`,
+  ].join(' ');
+
+  const saida: CheckoutAbandonado[] = [];
+  let cursor: string | null = null;
+
+  do {
+    const d: Pagina = await admin<Pagina>(query, { q, cursor });
+    for (const c of d.abandonedCheckouts.nodes) {
+      saida.push({
+        id: c.id.split('/').pop() ?? c.id,
+        token: c.abandonedCheckoutUrl?.match(/\/checkouts\/ac\/([^/?]+)/)?.[1] ?? null,
+        temTelefone: [c.customer?.phone, c.billingAddress?.phone, c.shippingAddress?.phone].some(
+          (t) => (t ?? '').trim().length > 0,
+        ),
+        valor: num(c.totalPriceSet),
+        criadoEm: c.createdAt,
+      });
+    }
+    cursor = d.abandonedCheckouts.pageInfo.hasNextPage
+      ? d.abandonedCheckouts.pageInfo.endCursor
+      : null;
+  } while (cursor);
+
+  return saida;
+}
+
 export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbandonados> {
   interface Pagina {
     abandonedCheckouts: {

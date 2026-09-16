@@ -894,44 +894,56 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
     if (a.semAtendente > 0) {
       linha(doc, '  sem atendente atribuído', numero(a.semAtendente), '', RUIM);
     }
-    if (a.checkoutsDaLoja) {
+    if (a.carrinhos) {
+      const c = a.carrinhos;
       linha(
         doc,
-        'Checkouts abandonados na loja',
-        numero(a.checkoutsDaLoja.total),
-        `${numero(a.checkoutsDaLoja.comTelefone)} com telefone · ${dinheiro(a.checkoutsDaLoja.valor)} em carrinho`,
+        'Abandonados na loja',
+        numero(c.naLoja.total),
+        `${numero(c.naLoja.comTelefone)} com telefone · ${dinheiro(c.naLoja.valor)} em carrinho`,
       );
-    }
-    linha(doc, 'Carrinhos no atendimento', numero(a.carrinhosGerados));
-    linha(
-      doc,
-      '  disparado e entregue',
-      numero(a.carrinhosEnviados + a.carrinhosRespondidos),
-      a.carrinhosRespondidos > 0 ? `${numero(a.carrinhosRespondidos)} responderam` : '',
-      BOM,
-    );
-    if (a.carrinhosComErro > 0) {
-      const taxa = a.carrinhosGerados > 0 ? a.carrinhosComErro / a.carrinhosGerados : 0;
+      linha(
+        doc,
+        'Chegaram na régua',
+        numero(c.noAtendimento.total),
+        `${numero(c.noAtendimento.disparados)} disparados pela automação`,
+      );
       linha(
         doc,
         '  não chegou no WhatsApp',
-        numero(a.carrinhosComErro),
-        `${pct(taxa, 0)} dos carrinhos · número inválido, bloqueado ou fora do WhatsApp`,
-        RUIM,
+        numero(c.noAtendimento.naoChegaram),
+        c.noAtendimento.disparados
+          ? `${pct(c.noAtendimento.naoChegaram / c.noAtendimento.disparados, 0)} dos disparos · número inválido, bloqueado ou fora do WhatsApp`
+          : '',
+        c.noAtendimento.naoChegaram > 0 ? RUIM : BOM,
       );
-    }
-    if (a.carrinhosPendentes > 0) {
-      linha(doc, '  ainda na fila', numero(a.carrinhosPendentes));
-    }
-    if (a.carrinhosDescartados > 0) {
-      linha(doc, '  descartados', numero(a.carrinhosDescartados), 'comprou ou saiu da régua');
-    }
-    if (a.checkoutsDaLoja) {
+      if (c.noAtendimento.naFila > 0) {
+        linha(doc, '  ainda na fila', numero(c.noAtendimento.naFila));
+      }
+      linha(
+        doc,
+        '  compraram depois do disparo',
+        numero(c.noAtendimento.compraramDepois),
+        c.noAtendimento.responderam > 0 ? `${numero(c.noAtendimento.responderam)} responderam` : '',
+        BOM,
+      );
+      linha(
+        doc,
+        'Ficaram fora da régua',
+        numero(c.semCarrinho.length),
+        c.semCarrinho.length
+          ? `com telefone, ainda abandonados, sem carrinho no atendimento · ${dinheiro(c.semCarrinho.reduce((t, x) => t + x.valor, 0))}`
+          : 'todo abandonado com telefone virou carrinho',
+        c.semCarrinho.length > 0 ? RUIM : BOM,
+      );
       paragrafo(
         doc,
-        'Os dois números não fecham e não deveriam: a Shopify tira da lista de abandonados o ' +
-          'checkout que virou pedido, então o que ela mostra hoje é o que sobrou; o AtendePro ' +
-          'registra no momento do abandono e guarda. A leitura útil é a de baixo, do disparo.',
+        'A conferência é checkout a checkout, pelo token da URL de recuperação — contar total ' +
+          'contra total não fecha nunca: a Shopify tira da lista o checkout que virou pedido, e o ' +
+          'AtendePro filtra por data UTC, o que jogava três horas do dia anterior para dentro da ' +
+          'conta. "Ficaram fora da régua" é a única pergunta sem ambiguidade: a cliente abandonou, ' +
+          'tinha telefone, não comprou, e mesmo assim não existe carrinho no atendimento. Só o ' +
+          'disparo automático entra aqui; mensagem que a atendente manda na mão vive na conversa.',
         TINTA3,
       );
     }

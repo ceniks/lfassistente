@@ -1,20 +1,14 @@
 import { config } from '../config.js';
 import { chamarFerramenta, chamarJson } from './mcp-client.js';
-import { checkoutsAbandonados, type CheckoutsAbandonados } from './shopify.js';
+import { conferirCarrinhos, type ConferenciaDeCarrinhos } from './carrinhos.js';
 
 export interface Atendimento {
   aguardando: number;
   porAtendente: Array<{ nome: string; total: number }>;
   semAtendente: number;
   porCanal: Array<{ canal: string; total: number }>;
-  carrinhosGerados: number;
-  carrinhosComErro: number;
-  carrinhosEnviados: number;
-  carrinhosRespondidos: number;
-  carrinhosPendentes: number;
-  carrinhosDescartados: number;
-  /** O lado da Shopify, para ver quem nem chegou ao disparo. */
-  checkoutsDaLoja: CheckoutsAbandonados | null;
+  /** Loja e régua conferidas checkout a checkout. */
+  carrinhos: ConferenciaDeCarrinhos | null;
   reguas: Regua[];
   npsSeteDias: number | null;
   npsRespostas: number;
@@ -40,10 +34,6 @@ interface Conversa {
   status: string;
   channel: string;
   assigned_agent_id: string | null;
-}
-
-interface Carrinho {
-  status: 'pending' | 'sent' | 'replied' | 'dismissed' | 'error';
 }
 
 /** Uma régua de WhatsApp (os flows de segmentação), no recorte de um dia. */
@@ -81,19 +71,14 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
   const srv = servidor();
   if (!srv) return null;
 
-  const [agentes, conversas, carrinhos, nps, checkoutsDaLoja, reguas] = await Promise.all([
+  const [agentes, conversas, carrinhos, nps, reguas] = await Promise.all([
     chamarJson<{ profiles: Agente[] }>(srv, 'list_agents', { limit: 50 }),
     chamarJson<{ count: number; conversations: Conversa[] }>(srv, 'list_conversations', {
       status: 'waiting',
       limit: 200,
     }),
-    chamarJson<{ count: number; carts: Carrinho[] }>(srv, 'list_abandoned_carts', {
-      start_date: dia,
-      end_date: dia,
-      limit: 200,
-    }),
+    conferirCarrinhos(dia).catch(() => null),
     npsDosUltimosDias(srv, dia, 7),
-    checkoutsAbandonados(dia).catch(() => null),
     reguasDoDia(dia).catch(() => [] as Regua[]),
   ]);
 
@@ -122,9 +107,6 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
     porCanal.set(canal, (porCanal.get(canal) ?? 0) + 1);
   }
 
-  const contar = (status: Carrinho['status']) =>
-    carrinhos.carts.filter((c) => c.status === status).length;
-
   return {
     aguardando: conversas.count,
     porAtendente: [...porAtendente.entries()]
@@ -134,13 +116,7 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
     porCanal: [...porCanal.entries()]
       .map(([canal, total]) => ({ canal, total }))
       .sort((a, b) => b.total - a.total),
-    carrinhosGerados: carrinhos.count,
-    carrinhosComErro: contar('error'),
-    carrinhosEnviados: contar('sent'),
-    carrinhosRespondidos: contar('replied'),
-    carrinhosPendentes: contar('pending'),
-    carrinhosDescartados: contar('dismissed'),
-    checkoutsDaLoja,
+    carrinhos,
     reguas,
     npsSeteDias: nps.nps,
     npsRespostas: nps.responses,

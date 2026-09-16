@@ -362,25 +362,28 @@ export function montarResumo(d: DadosResumo): string {
         );
       }
     }
-    if (a.checkoutsDaLoja) {
+    if (a.carrinhos) {
+      const c = a.carrinhos;
       fl.push(
-        `Checkouts abandonados na loja: ${numero(a.checkoutsDaLoja.total)} · ${numero(a.checkoutsDaLoja.comTelefone)} com telefone`,
+        `Carrinho abandonado: ${numero(c.naLoja.total)} na loja (${numero(c.naLoja.comTelefone)} com telefone) · ` +
+          `${numero(c.noAtendimento.total)} no atendimento · ${numero(c.noAtendimento.disparados)} disparados`,
       );
-    }
-    fl.push(
-      `Carrinho abandonado: ${numero(a.carrinhosGerados)} no atendimento · ` +
-        `${numero(a.carrinhosEnviados + a.carrinhosRespondidos)} entregues`,
-    );
-    if (a.carrinhosComErro > 0) {
-      const taxa =
-        a.carrinhosGerados > 0 ? a.carrinhosComErro / a.carrinhosGerados : 0;
-      fl.push(
+      if (c.noAtendimento.naoChegaram > 0) {
+        const base = c.noAtendimento.disparados || 1;
         // Percentual primeiro: "28 disparos com erro (22%)" fez o agente ler o
-        // 28 como percentual e escrever "28% de erro" na análise do dia. Dois
-        // números juntos, o primeiro absoluto e o segundo relativo, convidam à
-        // troca.
-        `⚠️ ${pct(taxa, 0)} não chegaram no WhatsApp — ${numero(a.carrinhosComErro)} de ${numero(a.carrinhosGerados)}`,
-      );
+        // 28 como percentual e escrever "28% de erro" na análise do dia.
+        fl.push(
+          `⚠️ ${pct(c.noAtendimento.naoChegaram / base, 0)} não chegaram no WhatsApp — ${numero(c.noAtendimento.naoChegaram)} de ${numero(c.noAtendimento.disparados)}`,
+        );
+      }
+      if (c.semCarrinho.length > 0) {
+        fl.push(
+          `⚠️ ${numero(c.semCarrinho.length)} abandonados com telefone ficaram fora da régua (${dinheiro(c.semCarrinho.reduce((t, x) => t + x.valor, 0))})`,
+        );
+      }
+      if (c.noAtendimento.compraramDepois > 0) {
+        fl.push(`${numero(c.noAtendimento.compraramDepois)} compraram depois do disparo`);
+      }
     }
 
     if (a.reguas.length) {

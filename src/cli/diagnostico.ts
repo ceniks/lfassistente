@@ -130,9 +130,10 @@ async function testarAtendePro() {
     console.log(`    sem atendente: ${a?.semAtendente}`);
     console.log(`  por canal: ${a?.porCanal.map((x) => `${x.canal} ${x.total}`).join(' · ')}`);
     console.log(
-      `\n  carrinhos de ${dia}: ${a?.carrinhosGerados} gerados, ` +
-        `${a?.carrinhosEnviados} enviados, ${a?.carrinhosComErro} com erro, ` +
-        `${a?.carrinhosRespondidos} respondidos`,
+      `\n  carrinhos de ${dia}: ${a?.carrinhos?.noAtendimento.total ?? 0} no atendimento, ` +
+        `${a?.carrinhos?.noAtendimento.disparados ?? 0} disparados, ` +
+        `${a?.carrinhos?.noAtendimento.naoChegaram ?? 0} não chegaram, ` +
+        `${a?.carrinhos?.semCarrinho.length ?? 0} fora da régua`,
     );
     console.log(`  NPS 7d: ${a?.npsSeteDias ?? '—'} (${a?.npsRespostas} respostas)`);
 
