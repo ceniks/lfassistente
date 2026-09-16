@@ -435,7 +435,6 @@ function secaoPatrimonio(doc: Doc, d: DadosRelatorio) {
       '  markup implícito',
       `${numero(markup, 2)}x`,
       'etiqueta ÷ custo, só das peças que têm custo no Corte Pro',
-      markup > 4 ? RUIM : TINTA,
     );
   }
   linha(
@@ -455,6 +454,25 @@ function secaoPatrimonio(doc: Doc, d: DadosRelatorio) {
       : 'nenhum corte esperando entrada',
     p.semSubirNoSite.pecas > 0 ? RUIM : BOM,
   );
+
+  // Custo que não fecha com o preço é registro errado, não margem boa. A
+  // Camisa Layla passou meses a R$ 21,83 contra R$ 47,58 do painel, e só
+  // apareceu porque o total do estoque pareceu baixo.
+  if (p.custoSuspeito.length) {
+    linha(
+      doc,
+      'Custo suspeito no Corte Pro',
+      numero(p.custoSuspeito.reduce((t, c) => t + c.pecas, 0)),
+      p.custoSuspeito
+        .slice(0, 4)
+        .map(
+          (c) =>
+            `${c.titulo}: ${dinheiro(c.custoPorPeca)} para ${dinheiro(c.precoMedio)} (${numero(c.markup, 1)}x)`,
+        )
+        .join(', '),
+      RUIM,
+    );
+  }
 
   if (p.semCusto.pecas > 0) {
     paragrafo(

@@ -19,7 +19,8 @@ vi.mock('../src/whatsapp/evolution.js', () => ({
 
 const { verificarContas } = await import('../src/vigia.js');
 
-const emSP = (hora: number) => new Date(`2026-09-17T${String(hora + 3).padStart(2, '0')}:00:00Z`);
+// São Paulo é UTC-3: 9h de SP é 12:00Z do mesmo dia; 22h de SP é 01:00Z do dia seguinte.
+const emSP = (hora: number) => new Date(Date.UTC(2026, 8, 17, hora + 3, 0, 0));
 
 const pendente = [
   { id: '1', nome: 'L&F01', estado: 'período de tolerância (cobrança pendente)', gravidade: 'atencao' as const, valorEmAberto: 1234 },
@@ -42,6 +43,15 @@ describe('vigia', () => {
       await verificarContas();
     }
     expect(enviados.filter((t) => t.includes('Cobrança pendente'))).toHaveLength(1);
+  });
+
+  it('deploy fora das 9h não dispara cobrança, mesmo com memória zerada', async () => {
+    contas.mockResolvedValue(pendente);
+    for (const h of [10, 13, 16, 19, 22]) {
+      vi.setSystemTime(emSP(h));
+      await verificarContas();
+    }
+    expect(enviados).toHaveLength(0);
   });
 
   it('não manda cobrança de madrugada', async () => {

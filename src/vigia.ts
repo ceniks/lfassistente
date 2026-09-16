@@ -105,8 +105,14 @@ export async function verificarContas(): Promise<void> {
     }
 
     // Atenção: cobrança pendente, ainda veiculando.
+    //
+    // A janela é a hora exata, não "das 9h em diante". O estado mora em
+    // memória e todo deploy zera o histórico: com "em diante", cada subida do
+    // serviço disparava a mensagem de novo — aconteceu às 19h do dia em que
+    // isto foi escrito, minutos depois de eu dizer que estava resolvido.
+    // Fechando na hora cheia, deploy fora das 9h não manda nada.
     if (avisoDeCobranca.get(conta.id) === hoje) continue;
-    if (horaEmSaoPaulo(agora) < HORA_DO_AVISO_DE_COBRANCA) continue;
+    if (horaEmSaoPaulo(agora) !== HORA_DO_AVISO_DE_COBRANCA) continue;
 
     await avisarCobranca(conta);
     avisoDeCobranca.set(conta.id, hoje);

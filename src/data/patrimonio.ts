@@ -28,6 +28,25 @@ export interface Patrimonio {
   semSubirNoSite: { pecas: number; cortes: number; desde: string; lista: CorteParado[] };
   /** Produtos da loja para os quais não achamos custo no Corte Pro. */
   semCusto: { produtos: number; pecas: number };
+  /** Custo baixo demais para o preço — quase sempre registro errado no corte. */
+  custoSuspeito: CustoSuspeito[];
+}
+
+/**
+ * Peça cujo custo não fecha com o preço.
+ *
+ * A alfaiataria da L&F trabalha entre 3,5 e 4,7 de markup — conferido corte a
+ * corte com o Luis em 16/09. Acima de 6 não é margem boa, é custo faltando no
+ * cadastro: a Camisa Layla aparecia a R$ 21,83 quando o painel do Corte Pro
+ * mostra R$ 47,58, e a diferença só apareceu porque ele estranhou o total.
+ * Esta lista existe para a próxima não depender de alguém estranhar.
+ */
+export interface CustoSuspeito {
+  titulo: string;
+  pecas: number;
+  precoMedio: number;
+  custoPorPeca: number;
+  markup: number;
 }
 
 export interface CorteParado {
@@ -240,6 +259,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
       emProducao: { pecas: 0, cortes: 0 },
       semSubirNoSite: { pecas: 0, cortes: 0, desde, lista: [] },
       semCusto: { produtos: loja.length, pecas: pecasNaLoja },
+      custoSuspeito: [],
     };
   }
 
@@ -317,10 +337,14 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
     return custoPorPeca.get(parecidas[0]);
   };
 
+  const MARKUP_ABSURDO = 6;
+
   let valorDeCusto = 0;
   let valorDeVendaComCusto = 0;
   let produtosSemCusto = 0;
   let pecasSemCusto = 0;
+  const custoSuspeito: CustoSuspeito[] = [];
+
   for (const item of loja) {
     const c = buscarCusto(item.titulo);
     if (c === undefined) {
@@ -330,7 +354,21 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
     }
     valorDeCusto += c * item.unidades;
     valorDeVendaComCusto += item.valorDeVenda;
+
+    const preco = item.valorDeVenda / item.unidades;
+    const markup = c > 0 ? preco / c : Infinity;
+    if (markup > MARKUP_ABSURDO) {
+      custoSuspeito.push({
+        titulo: item.titulo,
+        pecas: item.unidades,
+        precoMedio: preco,
+        custoPorPeca: c,
+        markup,
+      });
+    }
   }
+
+  custoSuspeito.sort((a, b) => b.pecas - a.pecas);
 
   // Na dúvida o corte conta como já subido: dizer que falta subir peça que já
   // está no site inventa estoque que não existe.
@@ -353,5 +391,6 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
         .sort((a, b) => b.pecas - a.pecas),
     },
     semCusto: { produtos: produtosSemCusto, pecas: pecasSemCusto },
+    custoSuspeito,
   };
 }
