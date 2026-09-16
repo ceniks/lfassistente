@@ -407,20 +407,30 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
 
   tabela(
     doc,
-    ['Peça', 'Vendidas', 'Média/dia', 'Estoque', 'Cobertura', 'Reposição'],
+    ['Peça', 'Vendidas', 'Saída/dia', 'Estoque', 'Cobertura', 'No ritmo 7d', 'Reposição'],
     cob.map((c) => [
       c.titulo,
       numero(c.vendidasNoDia),
       numero(c.mediaDiaria, 1),
       c.estoque === null ? '—' : numero(c.estoque),
       c.diasDeCobertura === null ? '—' : `${numero(c.diasDeCobertura, 1)} d`,
+      c.diasDeCobertura7d === null ? '—' : `${numero(c.diasDeCobertura7d, 1)} d`,
       reposicao(c) > 0 ? numero(reposicao(c)) : '—',
     ]),
-    [LARGURA - 350, 65, 70, 70, 70, 75],
-    ['left', 'right', 'right', 'right', 'right', 'right'],
+    [LARGURA - 415, 60, 65, 65, 65, 75, 70],
+    ['left', 'right', 'right', 'right', 'right', 'right', 'right'],
   );
 
-  const criticos = cob.filter((c) => c.diasDeCobertura !== null && c.diasDeCobertura <= 14);
+  // O alerta olha a pior das duas leituras: peça acelerando tem cobertura longa
+  // confortável e cobertura recente curta, e é a curta que vai acontecer.
+  const pior = (c: (typeof cob)[number]) => {
+    const vs = [c.diasDeCobertura, c.diasDeCobertura7d].filter((x): x is number => x !== null);
+    return vs.length ? Math.min(...vs) : null;
+  };
+  const criticos = cob.filter((c) => {
+    const p = pior(c);
+    return p !== null && p <= 14;
+  });
   const semReposicao = criticos.filter((c) => reposicao(c) === 0);
 
   if (criticos.length) {
@@ -451,11 +461,13 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
 
   paragrafo(
     doc,
-    'Cobertura é só o estoque da Shopify dividido pela média diária das últimas duas semanas — ' +
-      'peça que ainda não está no site não vende hoje. "Reposição" é o que ainda vai virar estoque: ' +
-      'o que está em corte, oficina e caseado mais os cortes já no galpão cujo campo "subiu no site" ' +
-      'continua vazio no Corte Pro. Campeão com poucos dias de cobertura e sem reposição é ruptura ' +
-      'marcada: entre cortar e repor não dá para recuperar a venda.',
+    'Cobertura é só o estoque da Shopify dividido pela saída média diária dos últimos 15 dias — ' +
+      'peça que ainda não está no site não vende hoje. A saída soma venda e troca (a troca não é ' +
+      'receita, mas tira a peça da prateleira igual) e deixa de fora o seeding de influencer. ' +
+      '"No ritmo 7d" repete a conta só com a última semana: quando ele é bem menor que a cobertura, ' +
+      'a peça acelerou e a média de 15 dias ainda não percebeu. "Reposição" é o que ainda vai virar ' +
+      'estoque: corte, oficina e caseado mais os cortes no galpão, a partir de 30/03/2026, sem ' +
+      '"subiu no site" no Corte Pro. Campeão com pouca cobertura e sem reposição é ruptura marcada.',
     TINTA3,
   );
 }

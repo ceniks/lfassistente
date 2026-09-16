@@ -224,14 +224,21 @@ export function montarResumo(d: DadosResumo): string {
   // confortável ocuparia meia tela para dizer "está tudo bem" — no PDF cabem
   // todos, aqui cabe o que exige ação.
   if (d.cobertura?.length) {
+    // A pior das duas leituras manda: a de 15 dias dá a base, a de 7 pega quem
+    // acelerou nesta semana e ainda aparece confortável na média longa.
+    const pior = (c: Cobertura) => {
+      const vs = [c.diasDeCobertura, c.diasDeCobertura7d].filter((x): x is number => x !== null);
+      return vs.length ? Math.min(...vs) : null;
+    };
+
     const apertados = d.cobertura
-      .filter((c) => c.diasDeCobertura !== null && c.diasDeCobertura <= 14)
-      .sort((a, b) => (a.diasDeCobertura ?? 0) - (b.diasDeCobertura ?? 0));
+      .filter((c) => (pior(c) ?? Infinity) <= 14)
+      .sort((a, b) => (pior(a) ?? 0) - (pior(b) ?? 0));
 
     const est = ["", "📦 ESTOQUE DOS CAMPEÕES"];
     if (apertados.length) {
       for (const c of apertados) {
-        const dias = numero(c.diasDeCobertura ?? 0, 1);
+        const dias = numero(pior(c) ?? 0, 1);
         est.push(
           `⚠️ ${c.titulo} — ${numero(c.estoque ?? 0)} peças, ${dias} dias` +
             (reposicao(c) > 0

@@ -98,9 +98,10 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     }
   };
 
-  // Uma busca só cobre o dia e os 7 anteriores. Ver o comentário em
-  // `vendasPorDia`: buscar dia a dia multiplicava as chamadas por oito.
-  const todosOsDias = [dia, ...diasAntes(dia, 7)];
+  // Uma busca só cobre o dia e os 14 anteriores — a mesma janela do PDF, para
+  // que a cobertura de estoque não dê número diferente nos dois lugares. A
+  // média de 7 dias do resumo continua saindo dos 7 primeiros.
+  const todosOsDias = [dia, ...diasAntes(dia, 14)];
   const periodo = await periodoDeVendas(todosOsDias);
   const vendasPorData = periodo.porDia;
   const vendas = vendasPorData.get(dia)!;
@@ -136,7 +137,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     // a linha some, sem derrubar o resto.
     opcional('clientes', () => novosVsRecorrentes(dia)),
     opcional('cobertura', () =>
-      coberturaDosCampeoes(vendas, periodo.unidadesPorProduto, periodo.diasComVenda),
+      coberturaDosCampeoes(vendas, periodo),
     ),
   ]);
 

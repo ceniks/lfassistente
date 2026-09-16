@@ -6,17 +6,22 @@
  * descoberta hoje quando a venda cai — tarde demais para cortar, costurar e
  * repor. A cobertura em dias antecipa isso.
  */
-import { estoqueDeProdutos, type ResumoVendas, type UnidadesDeProduto } from './shopify.js';
+import { estoqueDeProdutos, type PeriodoDeVendas, type ResumoVendas } from './shopify.js';
 import { cortesAbertos, type CorteAberto } from './producao.js';
 
 export interface Cobertura {
   titulo: string;
   /** Vendidas no dia do relatório. */
   vendidasNoDia: number;
+  /** Saída média por dia na janela inteira (15 dias), venda mais troca. */
   mediaDiaria: number;
+  /** A mesma conta só nos últimos 7 dias — serve para ler tendência. */
+  mediaDiaria7d: number;
   estoque: number | null;
   /** Estoque ÷ média diária. `null` quando não há estoque conhecido. */
   diasDeCobertura: number | null;
+  /** Cobertura no ritmo das últimas duas semanas — o alerta antecipado. */
+  diasDeCobertura7d: number | null;
   /** Peças em corte, oficina ou caseado — ainda sendo feitas. */
   emProducao: number;
   /** Peças prontas no galpão que ainda não subiram no site. */
@@ -52,9 +57,10 @@ export function reposicao(c: Cobertura): number {
 
 export async function coberturaDosCampeoes(
   vendas: ResumoVendas,
-  unidadesPorProduto: Map<string, UnidadesDeProduto>,
-  diasComVenda: number,
+  periodo: PeriodoDeVendas,
 ): Promise<Cobertura[]> {
+  const { unidadesPorProduto, diasComVenda, diasComVenda7d } = periodo;
+
   const campeoes = vendas.topProdutos;
   if (!campeoes.length) return [];
 
@@ -94,6 +100,7 @@ export async function coberturaDosCampeoes(
   return campeoes.map((p) => {
     const serie = unidadesPorProduto.get(p.titulo);
     const media = serie ? serie.unidades / diasComVenda : p.pecas;
+    const media7d = serie ? serie.unidades7d / diasComVenda7d : p.pecas;
     const est = serie?.produtoId ? (estoque.get(serie.produtoId)?.unidades ?? null) : null;
     const prod = producaoPorProduto.get(chaveDeProduto(p.titulo));
 
@@ -101,8 +108,10 @@ export async function coberturaDosCampeoes(
       titulo: p.titulo,
       vendidasNoDia: p.pecas,
       mediaDiaria: media,
+      mediaDiaria7d: media7d,
       estoque: est,
       diasDeCobertura: est !== null && media > 0 ? est / media : null,
+      diasDeCobertura7d: est !== null && media7d > 0 ? est / media7d : null,
       emProducao: prod?.pecas ?? 0,
       prontasNoGalpao: prod?.prontas ?? 0,
       corteMaisAntigo: prod?.maisAntigo,

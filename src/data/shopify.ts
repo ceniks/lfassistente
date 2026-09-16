@@ -350,11 +350,21 @@ export function agruparPorDiaDePagamento(pedidos: OrderNode[]): Map<string, Orde
  * `dias` são as datas de referência; a busca recua `FOLGA_PAGAMENTO` dias além
  * da mais antiga para pegar pedidos criados antes e pagos dentro do período.
  */
-/** Quanto cada produto vendeu no período inteiro, para calcular cobertura. */
+/**
+ * Quanto cada produto tirou do estoque no período, para calcular cobertura.
+ *
+ * Conta venda e troca. A troca não entra no faturamento — não é receita — mas
+ * a peça sai da prateleira igual, e cobertura é sobre peça, não sobre dinheiro.
+ * O seeding de influencer fica de fora: é volume decidido por campanha, não
+ * demanda, e entraria como pico que não se repete.
+ */
 export interface UnidadesDeProduto {
   titulo: string;
   produtoId: string | null;
+  /** Unidades no período inteiro. */
   unidades: number;
+  /** Só as dos últimos 7 dias da janela, para comparar com a média longa. */
+  unidades7d: number;
 }
 
 export interface PeriodoDeVendas {
@@ -363,6 +373,8 @@ export interface PeriodoDeVendas {
   unidadesPorProduto: Map<string, UnidadesDeProduto>;
   /** Dias do pedido que tiveram venda — é o divisor da média diária. */
   diasComVenda: number;
+  /** Idem, restrito aos últimos 7 dias da janela. */
+  diasComVenda7d: number;
 }
 
 /**
@@ -387,28 +399,46 @@ export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> 
   const porDia = new Map<string, ResumoVendas>();
   const unidadesPorProduto = new Map<string, UnidadesDeProduto>();
   let diasComVenda = 0;
+  let diasComVenda7d = 0;
+
+  // Os sete dias mais recentes da janela. A média longa dá a base; esta dá o
+  // sinal de que a base envelheceu — casaco saindo de temporada cai antes de a
+  // média de quinze dias perceber.
+  const recentes = new Set(ordenados.slice(-7));
 
   for (const dia of dias) {
     const doDia = porDiaDePagamento.get(dia) ?? [];
+    const recente = recentes.has(dia);
     porDia.set(dia, agregar(doDia, dia));
-    if (doDia.length) diasComVenda++;
+    if (doDia.length) {
+      diasComVenda++;
+      if (recente) diasComVenda7d++;
+    }
 
     for (const p of doDia) {
-      if (categoria(p) !== 'venda') continue;
+      const cat = categoria(p);
+      if (cat !== 'venda' && cat !== 'troca') continue;
       for (const item of p.lineItems.nodes) {
         const atual = unidadesPorProduto.get(item.title) ?? {
           titulo: item.title,
           produtoId: item.product?.id ?? null,
           unidades: 0,
+          unidades7d: 0,
         };
         atual.unidades += item.quantity;
+        if (recente) atual.unidades7d += item.quantity;
         if (!atual.produtoId && item.product?.id) atual.produtoId = item.product.id;
         unidadesPorProduto.set(item.title, atual);
       }
     }
   }
 
-  return { porDia, unidadesPorProduto, diasComVenda: diasComVenda || 1 };
+  return {
+    porDia,
+    unidadesPorProduto,
+    diasComVenda: diasComVenda || 1,
+    diasComVenda7d: diasComVenda7d || 1,
+  };
 }
 
 export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVendas>> {

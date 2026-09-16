@@ -131,11 +131,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       opcional('estornos', () => conferirEstorno(dia, dia)),
       opcional('clientes', () => novosVsRecorrentes(dia)),
       opcional('cobertura', () =>
-        coberturaDosCampeoes(
-          vendasPorData.get(dia)!,
-          periodo.unidadesPorProduto,
-          periodo.diasComVenda,
-        ),
+        coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
       ),
     ]);
 
