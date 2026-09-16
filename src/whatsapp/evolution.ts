@@ -16,6 +16,8 @@ async function post<T>(rota: string, corpo: unknown): Promise<T> {
       apikey: exigir('EVOLUTION_API_KEY'),
     },
     body: JSON.stringify(corpo),
+    // Sem teto, um envio pendurado segura o resumo inteiro.
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
@@ -102,4 +104,20 @@ function fatiar(texto: string, limite: number): string[] {
 
   if (atual) partes.push(atual.trim());
   return partes;
+}
+
+/** Como a Evolution vê a conexão do WhatsApp agora. */
+export async function estadoDaInstancia(): Promise<{ estado: string; detalhe?: string }> {
+  const instancia = exigir('EVOLUTION_INSTANCE');
+  try {
+    const res = await fetch(`${exigir('EVOLUTION_URL')}/instance/connectionState/${instancia}`, {
+      headers: { apikey: exigir('EVOLUTION_API_KEY') },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return { estado: 'erro', detalhe: `${res.status}` };
+    const json = (await res.json()) as { instance?: { state?: string } };
+    return { estado: json.instance?.state ?? 'desconhecido' };
+  } catch (e) {
+    return { estado: 'inalcançável', detalhe: e instanceof Error ? e.message : String(e) };
+  }
 }

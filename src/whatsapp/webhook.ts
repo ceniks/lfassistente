@@ -1,8 +1,9 @@
 import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
-import { enviarTexto, enviarDocumento } from './evolution.js';
+import { enviarTexto, enviarDocumento, estadoDaInstancia } from './evolution.js';
 import { perguntar } from '../agent/runner.js';
 import { gerarBoletim, pedidoDeBoletim } from '../relatorio/index.js';
+import { ultimaTentativa } from '../digest/estado.js';
 
 /**
  * Webhook da Evolution.
@@ -40,6 +41,19 @@ const MAX_VISTOS = 500;
 export function criarApp() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
+
+  // Estado de quem depende de coisa externa: a conexão do WhatsApp e a última
+  // tentativa de resumo. Manhã sem boletim se explica aqui, sem abrir painel.
+  app.get('/diag', async (_req, res) => {
+    res.json({
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
+      agora: new Date().toISOString(),
+      fuso: config().TZ,
+      cronDoResumo: config().DIGEST_CRON,
+      whatsapp: await estadoDaInstancia(),
+      ultimoResumo: ultimaTentativa(),
+    });
+  });
 
   // Devolve o commit que está no ar. Sem isso, "o deploy já subiu?" só se
   // responde pelo painel do Railway — e a resposta some quando a aba fecha.

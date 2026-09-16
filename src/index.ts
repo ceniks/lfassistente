@@ -4,6 +4,7 @@ import { criarApp } from './whatsapp/webhook.js';
 import { enviarTextoAosDonos } from './whatsapp/evolution.js';
 import { construirResumo, ontem } from './digest/build.js';
 import { verificarContas } from './vigia.js';
+import { resumoComecou, resumoTerminou } from './digest/estado.js';
 
 // Valida o conjunto obrigatório antes de qualquer coisa subir.
 const c = exigirConfigCompleta();
@@ -39,11 +40,22 @@ cron.schedule(
     const dia = ontem();
     console.log(`[digest] montando resumo de ${dia}`);
 
+    resumoComecou(dia);
+
     try {
-      const texto = await construirResumo(dia);
+      // Teto na montagem inteira. Cada fonte já tem o seu, mas um teto de fora
+      // garante que às 8h sai boletim ou sai erro — nunca silêncio.
+      const texto = await Promise.race([
+        construirResumo(dia),
+        new Promise<never>((_, rejeitar) =>
+          setTimeout(() => rejeitar(new Error('montagem passou de 10 minutos')), 10 * 60_000),
+        ),
+      ]);
       await enviarTextoAosDonos(texto);
+      resumoTerminou('enviado');
       console.log(`[digest] enviado (${texto.length} caracteres)`);
     } catch (e) {
+      resumoTerminou('falhou', e instanceof Error ? e.message : String(e));
       console.error('[digest] falhou:', e);
       // Silêncio às 8h é pior que uma mensagem de erro: sem aviso, o Luis
       // pensa que o dia foi fraco quando na verdade o resumo não rodou.

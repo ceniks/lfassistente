@@ -13,6 +13,28 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 const conexoes = new Map<string, Client>();
 
+/**
+ * Teto de espera. Sem isto uma conexão pendurada trava quem chamou para
+ * sempre: o boletim das 8h ficou sem sair porque uma chamada ao Corte Pro
+ * nunca voltou nem falhou. Erro dá para tratar; silêncio não.
+ */
+const LIMITE_CONEXAO = 20_000;
+const LIMITE_CHAMADA = 60_000;
+
+async function comPrazo<T>(promessa: Promise<T>, ms: number, oque: string): Promise<T> {
+  let alarme: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promessa,
+      new Promise<never>((_, rejeitar) => {
+        alarme = setTimeout(() => rejeitar(new Error(`${oque}: sem resposta em ${ms / 1000}s`)), ms);
+      }),
+    ]);
+  } finally {
+    if (alarme) clearTimeout(alarme);
+  }
+}
+
 async function conectar(nome: string, url: string, token?: string): Promise<Client> {
   const existente = conexoes.get(nome);
   if (existente) return existente;
@@ -23,7 +45,7 @@ async function conectar(nome: string, url: string, token?: string): Promise<Clie
     requestInit: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
   });
 
-  await client.connect(transport);
+  await comPrazo(client.connect(transport), LIMITE_CONEXAO, `${nome}: conexão`);
   conexoes.set(nome, client);
   return client;
 }
@@ -42,7 +64,20 @@ export async function chamarFerramenta(
 ): Promise<string> {
   const client = await conectar(servidor.nome, servidor.url, servidor.token);
 
-  const resultado = await client.callTool({ name: ferramenta, arguments: argumentos });
+  let resultado;
+  try {
+    resultado = await comPrazo(
+      client.callTool({ name: ferramenta, arguments: argumentos }),
+      LIMITE_CHAMADA,
+      `${servidor.nome}.${ferramenta}`,
+    );
+  } catch (e) {
+    // Conexão guardada que deu errado provavelmente está morta: a próxima
+    // chamada reconecta em vez de bater na mesma parede.
+    conexoes.delete(servidor.nome);
+    await client.close().catch(() => undefined);
+    throw e;
+  }
 
   const blocos = (resultado.content ?? []) as Array<{ type: string; text?: string }>;
   return blocos

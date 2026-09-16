@@ -64,6 +64,8 @@ interface RespostaGraphQL<T> {
   errors?: Array<{ message: string; extensions?: { code?: string } }>;
   extensions?: {
     cost?: {
+      requestedQueryCost?: number;
+      actualQueryCost?: number;
       throttleStatus?: { currentlyAvailable: number; restoreRate: number; maximumAvailable: number };
     };
   };
@@ -78,6 +80,17 @@ interface RespostaGraphQL<T> {
  * tentar de novo.
  */
 let saldo: { pontos: number; restaurePorSegundo: number; em: number } | null = null;
+
+/**
+ * Custo real da última execução de cada consulta.
+ *
+ * O balde da Shopify admite a requisição pelo custo *pedido*, calculado a
+ * partir dos `first` do documento — não pelo que volta. Assumir 100 pontos
+ * para uma consulta que pede 800 fazia o cliente disparar sem saldo, levar
+ * THROTTLED e dormir 2s, 4s, 8s a cada página. Guardar o custo medido e
+ * esperar por ele antes de chamar troca esse pingue-pongue por uma espera só.
+ */
+const custoConhecido = new Map<string, number>();
 
 async function esperarSaldo(custoEstimado = 100): Promise<void> {
   if (!saldo) return;
@@ -100,7 +113,7 @@ async function admin<T>(
   const token = await accessToken();
   const versao = config().SHOPIFY_API_VERSION;
 
-  await esperarSaldo();
+  await esperarSaldo(custoConhecido.get(query) ?? 100);
 
   const res = await fetch(`https://${loja}/admin/api/${versao}/graphql.json`, {
     method: 'POST',
@@ -123,6 +136,17 @@ async function admin<T>(
   }
 
   const json = (await res.json()) as RespostaGraphQL<T>;
+
+  const custo = json.extensions?.cost?.requestedQueryCost;
+  if (typeof custo === 'number') {
+    custoConhecido.set(query, custo);
+    if (process.env.DEBUG_SHOPIFY_CUSTO) {
+      console.error(
+        `[shopify] pedido ${custo} · real ${json.extensions?.cost?.actualQueryCost ?? '?'} · ` +
+          `saldo ${json.extensions?.cost?.throttleStatus?.currentlyAvailable ?? '?'}`,
+      );
+    }
+  }
 
   const t = json.extensions?.cost?.throttleStatus;
   if (t) {
