@@ -63,12 +63,20 @@ export async function enviarDocumento(
  * Em série e sem parar no primeiro erro: se um dos telefones estiver fora do ar,
  * o outro ainda recebe o resumo. O erro vai para o log, não derruba o envio.
  */
-export async function enviarTextoAosDonos(texto: string): Promise<void> {
+export async function enviarTextoAosDonos(texto: string): Promise<number> {
+  let entregues = 0;
   for (const numero of donos()) {
-    await enviarTexto(numero, texto).catch((e) =>
-      console.error(`[evolution] não consegui enviar para ${numero}:`, e),
-    );
+    try {
+      await enviarTexto(numero, texto);
+      entregues++;
+    } catch (e) {
+      console.error(`[evolution] não consegui enviar para ${numero}:`, e);
+    }
   }
+  // Zero entregas é falha, não sucesso silencioso: era assim que uma manhã
+  // inteira passava sem boletim e sem ninguém saber por quê.
+  if (entregues === 0) console.error('[evolution] nenhum dono recebeu a mensagem');
+  return entregues;
 }
 
 export async function enviarDocumentoAosDonos(

@@ -51,9 +51,10 @@ cron.schedule(
           setTimeout(() => rejeitar(new Error('montagem passou de 10 minutos')), 10 * 60_000),
         ),
       ]);
-      await enviarTextoAosDonos(texto);
+      const entregues = await enviarTextoAosDonos(texto);
+      if (entregues === 0) throw new Error('resumo pronto, mas nenhum número recebeu');
       resumoTerminou('enviado');
-      console.log(`[digest] enviado (${texto.length} caracteres)`);
+      console.log(`[digest] enviado para ${entregues} número(s) (${texto.length} caracteres)`);
     } catch (e) {
       resumoTerminou('falhou', e instanceof Error ? e.message : String(e));
       console.error('[digest] falhou:', e);
