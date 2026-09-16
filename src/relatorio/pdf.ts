@@ -894,19 +894,89 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
     if (a.semAtendente > 0) {
       linha(doc, '  sem atendente atribuído', numero(a.semAtendente), '', RUIM);
     }
-    linha(doc, 'Carrinhos abandonados gerados', numero(a.carrinhosGerados));
+    if (a.checkoutsDaLoja) {
+      linha(
+        doc,
+        'Checkouts abandonados na loja',
+        numero(a.checkoutsDaLoja.total),
+        `${numero(a.checkoutsDaLoja.comTelefone)} com telefone · ${dinheiro(a.checkoutsDaLoja.valor)} em carrinho`,
+      );
+    }
+    linha(doc, 'Carrinhos no atendimento', numero(a.carrinhosGerados));
+    linha(
+      doc,
+      '  disparado e entregue',
+      numero(a.carrinhosEnviados + a.carrinhosRespondidos),
+      a.carrinhosRespondidos > 0 ? `${numero(a.carrinhosRespondidos)} responderam` : '',
+      BOM,
+    );
     if (a.carrinhosComErro > 0) {
       const taxa = a.carrinhosGerados > 0 ? a.carrinhosComErro / a.carrinhosGerados : 0;
       linha(
         doc,
-        '  disparos com erro',
-        `${pct(taxa, 0)}`,
-        `${numero(a.carrinhosComErro)} de ${numero(a.carrinhosGerados)}`,
+        '  não chegou no WhatsApp',
+        numero(a.carrinhosComErro),
+        `${pct(taxa, 0)} dos carrinhos · número inválido, bloqueado ou fora do WhatsApp`,
         RUIM,
+      );
+    }
+    if (a.carrinhosPendentes > 0) {
+      linha(doc, '  ainda na fila', numero(a.carrinhosPendentes));
+    }
+    if (a.carrinhosDescartados > 0) {
+      linha(doc, '  descartados', numero(a.carrinhosDescartados), 'comprou ou saiu da régua');
+    }
+    if (a.checkoutsDaLoja) {
+      paragrafo(
+        doc,
+        'Os dois números não fecham e não deveriam: a Shopify tira da lista de abandonados o ' +
+          'checkout que virou pedido, então o que ela mostra hoje é o que sobrou; o AtendePro ' +
+          'registra no momento do abandono e guarda. A leitura útil é a de baixo, do disparo.',
+        TINTA3,
       );
     }
     if (a.npsSeteDias !== null) {
       linha(doc, 'NPS 7 dias', numero(a.npsSeteDias), `${numero(a.npsRespostas)} respostas`);
+    }
+
+    if (a.reguas.length) {
+      garantirEspaco(doc, 120);
+      tabela(
+        doc,
+        ['Régua de WhatsApp', 'Enviadas', 'Falhas', 'Conversões', 'Receita'],
+        a.reguas.map((r) => [
+          r.nome,
+          numero(r.enviadas),
+          `${numero(r.falhas)}${r.recusasNoEnvio > 0 ? ` (${numero(r.recusasNoEnvio)} recusadas)` : ''}`,
+          numero(r.conversoes),
+          r.receita > 0 ? dinheiro(r.receita) : '—',
+        ]),
+        [LARGURA - 290, 70, 90, 65, 65],
+        ['left', 'right', 'right', 'right', 'right'],
+      );
+
+      const enviadas = a.reguas.reduce((t, r) => t + r.enviadas, 0);
+      const falhas = a.reguas.reduce((t, r) => t + r.falhas, 0);
+      const recusas = a.reguas.reduce((t, r) => t + r.recusasNoEnvio, 0);
+      const receita = a.reguas.reduce((t, r) => t + r.receita, 0);
+
+      linha(
+        doc,
+        'Total das réguas',
+        numero(enviadas),
+        `${pct(falhas / Math.max(1, enviadas + falhas), 0)} de falha · ${dinheiro(receita)} atribuídos`,
+        falhas / Math.max(1, enviadas + falhas) > 0.15 ? RUIM : TINTA,
+      );
+
+      paragrafo(
+        doc,
+        'Falha aqui é quase sempre entrega: a Meta aceitou a mensagem e ela não chegou — número ' +
+          'inválido, bloqueado ou sem WhatsApp. É atrito de base, não defeito de configuração. ' +
+          (recusas > 0
+            ? `${numero(recusas)} foram recusadas no envio, e essas sim são problema de template, variável ou conta.`
+            : 'Nenhuma foi recusada no envio, então template e conta estão de pé.'),
+        TINTA3,
+      );
     }
   }
 

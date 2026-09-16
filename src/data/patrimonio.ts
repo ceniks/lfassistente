@@ -96,40 +96,57 @@ function tokens(chave: string): string[] {
   return chave.split(' ').filter((t) => t && !PALAVRAS_DE_VARIACAO.has(t));
 }
 
-/**
- * Um nome casa com o outro quando a categoria é a mesma e os tokens do mais
- * curto cabem inteiros no mais longo.
- *
- * Três exigências, cada uma tirada de um erro real:
- *
- *  - a categoria é o primeiro token e tem de bater exatamente, porque "calça
- *    Itália" e "casaco Itália" são produtos diferentes com o mesmo modelo;
- *  - todos os tokens do mais curto têm de aparecer no mais longo, senão "Calça
- *    Nova York" casaria com o corte "Calça Nova", que é outro produto;
- *  - e o mais curto precisa ter ao menos dois tokens. Corte batizado só com a
- *    categoria — "Casaco", "Calça Nova", "Camisa conj" — encaixaria em tudo da
- *    categoria. Foi o que aconteceu: o Blazer Tóquio herdou em silêncio o custo
- *    de "Blazer bicudo listrado", e Calça Londres ficou sem custo nenhum porque
- *    três cortes genéricos empataram com o certo.
- */
-function casa(a: string, b: string): boolean {
-  const ta = tokens(a);
-  const tb = tokens(b);
-  if (!ta.length || !tb.length) return false;
-  if (ta[0] !== tb[0]) return false;
-
-  const [curto, longo] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  if (curto.length < 2) return false;
-
-  const cesta = new Set(longo);
-  return curto.every((t) => cesta.has(t));
-}
 
 interface LinhaDeCorte {
   codigo: string;
   produto: string;
+  /** A categoria que o Corte Pro declara, entre parênteses na listagem. */
+  categoria: string;
   pecas: number;
   chegouNoGalpao?: string;
+}
+
+/**
+ * As formas pelas quais um corte pode ser reconhecido.
+ *
+ * O Corte Pro guarda a categoria em campo próprio, e ela nem sempre é a
+ * primeira palavra do nome: o corte 2020 se chama "Blazer casaco roma" e está
+ * declarado como **Casaco** — é o Casaco Roma da loja, 565 peças que ficavam
+ * sem custo por causa disso. Mas o campo também tem erro de digitação (a "Calça
+ * Nova montreal" está declarada como Blazer), então nenhuma das duas leituras
+ * serve sozinha. Geramos as duas e aceitamos a que casar, desde que só uma
+ * casar.
+ */
+interface Forma {
+  categoria: string;
+  modelo: string[];
+}
+
+function formasDoCorte(c: LinhaDeCorte): Forma[] {
+  const nome = tokens(chaveDeProduto(c.produto));
+  if (!nome.length) return [];
+
+  const formas: Forma[] = [{ categoria: nome[0], modelo: nome.slice(1) }];
+
+  const cat = chaveDeProduto(c.categoria);
+  if (cat && cat !== nome[0]) {
+    formas.push({ categoria: cat, modelo: nome.filter((t) => t !== cat) });
+  }
+  return formas.filter((f) => f.modelo.length > 0);
+}
+
+function formaDoProduto(titulo: string): Forma | null {
+  const t = tokens(chaveDeProduto(titulo));
+  if (t.length < 2) return null;
+  return { categoria: t[0], modelo: t.slice(1) };
+}
+
+/** O modelo da loja tem de caber inteiro no modelo do corte, ou o contrário. */
+function formasCasam(a: Forma, b: Forma): boolean {
+  if (a.categoria !== b.categoria) return false;
+  const [curto, longo] = a.modelo.length <= b.modelo.length ? [a.modelo, b.modelo] : [b.modelo, a.modelo];
+  const cesta = new Set(longo);
+  return curto.length > 0 && curto.every((t) => cesta.has(t));
 }
 
 const LINHA =
@@ -144,7 +161,15 @@ async function listar(srv: NonNullable<ReturnType<typeof servidor>>, status: str
   }
   const saida: LinhaDeCorte[] = [];
   for (const m of texto.matchAll(LINHA)) {
-    saida.push({ codigo: m[1], produto: m[2].trim(), pecas: Number(m[4]), chegouNoGalpao: m[6] });
+    const bruto = m[2].trim();
+    const categoria = bruto.match(/\(([^)]*)\)\s*$/)?.[1] ?? '';
+    saida.push({
+      codigo: m[1],
+      produto: bruto,
+      categoria,
+      pecas: Number(m[4]),
+      chegouNoGalpao: m[6],
+    });
   }
   return saida;
 }
@@ -250,14 +275,26 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
     custoPorPeca.set(chave, d.custoTotal / d.pecas);
   }
 
-  const chavesComCusto = [...custoPorPeca.keys()];
+  // Índice de formas, para não recalcular a cada produto da loja.
+  const formasPorChave = new Map<string, Forma[]>();
+  for (const [chave, corte] of maisRecentePorProduto) {
+    if (custoPorPeca.has(chave)) formasPorChave.set(chave, formasDoCorte(corte));
+  }
+
   const buscarCusto = (titulo: string): number | undefined => {
     const chave = chaveDeProduto(titulo);
     const exato = custoPorPeca.get(chave);
     if (exato !== undefined) return exato;
 
-    const parecidas = chavesComCusto.filter((k) => casa(k, chave));
-    if (parecidas.length !== 1) return undefined; // ambíguo é o mesmo que não achar
+    const forma = formaDoProduto(titulo);
+    if (!forma) return undefined;
+
+    const parecidas = [...formasPorChave.entries()]
+      .filter(([, formas]) => formas.some((f) => formasCasam(f, forma)))
+      .map(([k]) => k);
+
+    // Ambíguo é o mesmo que não achar: custo errado é pior que custo ausente.
+    if (parecidas.length !== 1) return undefined;
     return custoPorPeca.get(parecidas[0]);
   };
 

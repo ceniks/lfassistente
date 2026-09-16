@@ -1,5 +1,6 @@
 import { config } from '../config.js';
-import { chamarJson } from './mcp-client.js';
+import { chamarFerramenta, chamarJson } from './mcp-client.js';
+import { checkoutsAbandonados, type CheckoutsAbandonados } from './shopify.js';
 
 export interface Atendimento {
   aguardando: number;
@@ -10,6 +11,11 @@ export interface Atendimento {
   carrinhosComErro: number;
   carrinhosEnviados: number;
   carrinhosRespondidos: number;
+  carrinhosPendentes: number;
+  carrinhosDescartados: number;
+  /** O lado da Shopify, para ver quem nem chegou ao disparo. */
+  checkoutsDaLoja: CheckoutsAbandonados | null;
+  reguas: Regua[];
   npsSeteDias: number | null;
   npsRespostas: number;
 }
@@ -40,6 +46,19 @@ interface Carrinho {
   status: 'pending' | 'sent' | 'replied' | 'dismissed' | 'error';
 }
 
+/** Uma régua de WhatsApp (os flows de segmentação), no recorte de um dia. */
+export interface Regua {
+  nome: string;
+  enviadas: number;
+  falhas: number;
+  /** Falha depois de a Meta aceitar: número inválido, bloqueado ou fora do WhatsApp. */
+  falhasDeEntrega: number;
+  /** Recusa no envio: template, variável ou conta. Problema nosso, não do número. */
+  recusasNoEnvio: number;
+  conversoes: number;
+  receita: number;
+}
+
 const CANAIS: Record<string, string> = {
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
@@ -62,7 +81,7 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
   const srv = servidor();
   if (!srv) return null;
 
-  const [agentes, conversas, carrinhos, nps] = await Promise.all([
+  const [agentes, conversas, carrinhos, nps, checkoutsDaLoja, reguas] = await Promise.all([
     chamarJson<{ profiles: Agente[] }>(srv, 'list_agents', { limit: 50 }),
     chamarJson<{ count: number; conversations: Conversa[] }>(srv, 'list_conversations', {
       status: 'waiting',
@@ -74,6 +93,8 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
       limit: 200,
     }),
     npsDosUltimosDias(srv, dia, 7),
+    checkoutsAbandonados(dia).catch(() => null),
+    reguasDoDia(dia).catch(() => [] as Regua[]),
   ]);
 
   // As conversas apontam para o `user_id`, não para o `id` do perfil — os dois
@@ -117,6 +138,10 @@ export async function atendimentoAtual(dia: string): Promise<Atendimento | null>
     carrinhosComErro: contar('error'),
     carrinhosEnviados: contar('sent'),
     carrinhosRespondidos: contar('replied'),
+    carrinhosPendentes: contar('pending'),
+    carrinhosDescartados: contar('dismissed'),
+    checkoutsDaLoja,
+    reguas,
     npsSeteDias: nps.nps,
     npsRespostas: nps.responses,
   };
@@ -174,4 +199,76 @@ export async function campanhasRfm(): Promise<
     respostas: c.total_replied,
     compras: c.total_purchased,
   }));
+}
+
+/**
+ * As réguas de WhatsApp no dia, uma linha por régua.
+ *
+ * O AtendePro devolve texto formatado, não JSON, e a listagem agregada não
+ * separa enviada de falha — só o detalhe de cada flow separa. São seis
+ * chamadas (a lista e um detalhe por régua), o que cabe no boletim.
+ *
+ * A distinção que importa está dentro das falhas: falha COM wamid é entrega
+ * que a Meta aceitou e não chegou (número inválido, bloqueado ou sem
+ * WhatsApp); falha SEM wamid é recusa no envio, problema de template ou de
+ * conta. A primeira é atrito de base, a segunda é defeito nosso — e só a
+ * segunda dá para consertar hoje.
+ */
+export async function reguasDoDia(dia: string): Promise<Regua[]> {
+  const srv = servidor();
+  if (!srv) return [];
+
+  const lista = await chamarFerramenta(srv, 'list_rfm_flows', {
+    start_date: dia,
+    end_date: dia,
+  });
+
+  const flows = [...lista.matchAll(/•\s*(.+?)\s*\[(?:ativo|pausado)\]\s*id=([0-9a-f-]{36})/g)].map(
+    (m) => ({ nome: m[1].trim(), id: m[2] }),
+  );
+
+  const saida: Regua[] = [];
+
+  for (const f of flows) {
+    let texto: string;
+    try {
+      texto = await chamarFerramenta(srv, 'list_rfm_flows', {
+        flow_id: f.id,
+        start_date: dia,
+        end_date: dia,
+      });
+    } catch {
+      continue;
+    }
+
+    const envio = texto.match(/registradas no período:\s*\d+\s*\((\d+)\s*enviadas\s*\+\s*(\d+)\s*falhas\)/i);
+    if (!envio) continue;
+
+    const enviadas = Number(envio[1]);
+    const falhas = Number(envio[2]);
+    if (!enviadas && !falhas) continue;
+
+    const comWamid = Number(
+      texto.match(/Sobre as \d+ falhas:\s*(\d+)\s*têm wamid/i)?.[1] ?? falhas,
+    );
+    const semWamid = Number(
+      texto.match(/(\d+)\s*falhas não têm wamid/i)?.[1] ?? Math.max(0, falhas - comWamid),
+    );
+
+    const conv = texto.match(
+      /\(a\) com envio anterior à compra[^:]*:\s*(\d+)\s*conversões\s*\|\s*R\$\s*([\d.,]+)/i,
+    );
+
+    saida.push({
+      nome: f.nome,
+      enviadas,
+      falhas,
+      falhasDeEntrega: comWamid,
+      recusasNoEnvio: semWamid,
+      conversoes: Number(conv?.[1] ?? 0),
+      receita: conv ? Number(conv[2].replace(/\./g, '').replace(',', '.')) : 0,
+    });
+  }
+
+  return saida.sort((a, b) => b.enviadas + b.falhas - (a.enviadas + a.falhas));
 }

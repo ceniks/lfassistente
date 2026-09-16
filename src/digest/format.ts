@@ -362,7 +362,15 @@ export function montarResumo(d: DadosResumo): string {
         );
       }
     }
-    fl.push(`Carrinho abandonado: ${numero(a.carrinhosGerados)} gerados`);
+    if (a.checkoutsDaLoja) {
+      fl.push(
+        `Checkouts abandonados na loja: ${numero(a.checkoutsDaLoja.total)} · ${numero(a.checkoutsDaLoja.comTelefone)} com telefone`,
+      );
+    }
+    fl.push(
+      `Carrinho abandonado: ${numero(a.carrinhosGerados)} no atendimento · ` +
+        `${numero(a.carrinhosEnviados + a.carrinhosRespondidos)} entregues`,
+    );
     if (a.carrinhosComErro > 0) {
       const taxa =
         a.carrinhosGerados > 0 ? a.carrinhosComErro / a.carrinhosGerados : 0;
@@ -371,8 +379,24 @@ export function montarResumo(d: DadosResumo): string {
         // 28 como percentual e escrever "28% de erro" na análise do dia. Dois
         // números juntos, o primeiro absoluto e o segundo relativo, convidam à
         // troca.
-        `⚠️ ${pct(taxa, 0)} dos disparos com erro — ${numero(a.carrinhosComErro)} de ${numero(a.carrinhosGerados)}`,
+        `⚠️ ${pct(taxa, 0)} não chegaram no WhatsApp — ${numero(a.carrinhosComErro)} de ${numero(a.carrinhosGerados)}`,
       );
+    }
+
+    if (a.reguas.length) {
+      const enviadas = a.reguas.reduce((t, r) => t + r.enviadas, 0);
+      const falhas = a.reguas.reduce((t, r) => t + r.falhas, 0);
+      const receita = a.reguas.reduce((t, r) => t + r.receita, 0);
+      fl.push(
+        `Réguas de WhatsApp: ${numero(enviadas)} enviadas · ${numero(falhas)} falhas · ${dinheiro(receita)} atribuídos`,
+      );
+      for (const r of a.reguas) {
+        fl.push(
+          `  ${r.nome}: ${numero(r.enviadas)} enviadas` +
+            (r.falhas > 0 ? ` · ${numero(r.falhas)} falhas` : "") +
+            (r.conversoes > 0 ? ` · ${numero(r.conversoes)} compras (${dinheiro(r.receita)})` : ""),
+        );
+      }
     }
     if (a.npsSeteDias !== null) {
       fl.push(

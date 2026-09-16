@@ -1045,6 +1045,77 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
   return saida;
 }
 
+export interface CheckoutsAbandonados {
+  total: number;
+  comTelefone: number;
+  valor: number;
+}
+
+/**
+ * Os checkouts abandonados do dia, do lado da Shopify.
+ *
+ * Serve para fechar o funil do carrinho abandonado: o AtendePro só dispara
+ * para quem tem telefone, então a diferença entre o que a Shopify registrou e
+ * o que chegou lá é receita que o canal nunca teve chance de recuperar.
+ *
+ * O telefone pode estar em três lugares — no cliente, no endereço de cobrança
+ * ou no de entrega — e na prática o mais preenchido é o de cobrança, não o do
+ * cliente. Olhar só `customer.phone` daria "quase ninguém tem telefone", que é
+ * falso.
+ */
+export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbandonados> {
+  interface Pagina {
+    abandonedCheckouts: {
+      nodes: Array<{
+        totalPriceSet: { shopMoney: { amount: string } } | null;
+        customer: { phone: string | null } | null;
+        billingAddress: { phone: string | null } | null;
+        shippingAddress: { phone: string | null } | null;
+      }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
+  }
+
+  const query = `
+    query Abandonados($q: String!, $cursor: String) {
+      abandonedCheckouts(first: 100, query: $q, after: $cursor, sortKey: CREATED_AT) {
+        nodes {
+          totalPriceSet { shopMoney { amount } }
+          customer { phone }
+          billingAddress { phone }
+          shippingAddress { phone }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  `;
+
+  const q = [
+    `created_at:>='${dia}T00:00:00-03:00'`,
+    `created_at:<='${dia}T23:59:59-03:00'`,
+  ].join(' ');
+
+  const saida: CheckoutsAbandonados = { total: 0, comTelefone: 0, valor: 0 };
+  let cursor: string | null = null;
+
+  do {
+    const d: Pagina = await admin<Pagina>(query, { q, cursor });
+    for (const c of d.abandonedCheckouts.nodes) {
+      saida.total++;
+      saida.valor += num(c.totalPriceSet);
+      const tem = [c.customer?.phone, c.billingAddress?.phone, c.shippingAddress?.phone].some(
+        (t) => (t ?? '').trim().length > 0,
+      );
+      if (tem) saida.comTelefone++;
+    }
+    cursor = d.abandonedCheckouts.pageInfo.hasNextPage
+      ? d.abandonedCheckouts.pageInfo.endCursor
+      : null;
+  } while (cursor);
+
+  return saida;
+}
+
 /* ------------------------------------------------------------------ *
  * Estornos
  * ------------------------------------------------------------------ */
