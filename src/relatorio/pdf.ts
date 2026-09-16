@@ -551,33 +551,34 @@ function secaoRitmo(doc: Doc, d: DadosRelatorio) {
   titulo(doc, 'Ritmo do dia');
 
   const total = d.vendas.receita;
-  const mediaDe = (h: number) => d.media7dPorHora.find((x) => x.hora === h)?.receita ?? 0;
+  const mediaDe = (h: number) => d.media7dPorHora.find((x) => x.hora === h);
 
   tabela(
     doc,
-    ['Até as', 'Faturado', '% do dia', 'Média 7d na hora', 'Diferença'],
+    ['Até as', 'Faturado', '% do dia', '% normal', 'Média 7d', 'Diferença'],
     horas.map((h) => {
       const m = mediaDe(h.hora);
       return [
         `${String(h.hora).padStart(2, '0')}h`,
         dinheiro(h.receita),
         total > 0 ? pct(h.receita / total) : '—',
-        m > 0 ? dinheiro(m) : '—',
-        m > 0 ? variacao(h.receita, m) : '—',
+        m && m.fracaoDoDia > 0 ? pct(m.fracaoDoDia) : '—',
+        m && m.receita > 0 ? dinheiro(m.receita) : '—',
+        m && m.receita > 0 ? variacao(h.receita, m.receita) : '—',
       ];
     }),
-    [LARGURA - 330, 85, 65, 105, 75],
-    ['left', 'right', 'right', 'right', 'right'],
+    [LARGURA - 390, 85, 60, 60, 85, 70],
+    ['left', 'right', 'right', 'right', 'right', 'right'],
   );
 
   const meioDia = horas.find((h) => h.hora === 12);
   const m12 = mediaDe(12);
-  if (meioDia && m12 > 0) {
-    const dif = meioDia.receita / m12 - 1;
+  if (meioDia && m12 && m12.receita > 0) {
+    const dif = meioDia.receita / m12.receita - 1;
     linha(
       doc,
       'Leitura do meio-dia',
-      variacao(meioDia.receita, m12),
+      variacao(meioDia.receita, m12.receita),
       dif < -0.15
         ? 'abaixo do ritmo — é a hora de mexer em mídia ou oferta'
         : dif > 0.15
@@ -585,13 +586,32 @@ function secaoRitmo(doc: Doc, d: DadosRelatorio) {
           : 'dentro do normal',
       dif < -0.15 ? RUIM : dif > 0.15 ? BOM : TINTA,
     );
+
+    // Adiantado não é o mesmo que forte: o dia pode estar na frente em reais e
+    // ainda assim ter carregado tudo cedo, o que muda o que esperar da tarde.
+    const fracaoHoje = total > 0 ? meioDia.receita / total : 0;
+    if (m12.fracaoDoDia > 0 && fracaoHoje > 0) {
+      const gap = fracaoHoje - m12.fracaoDoDia;
+      if (Math.abs(gap) >= 0.05) {
+        linha(
+          doc,
+          '  forma do dia',
+          `${pct(fracaoHoje)} contra ${pct(m12.fracaoDoDia)}`,
+          gap > 0
+            ? 'o dia carregou cedo — a tarde tende a pesar menos que o normal'
+            : 'o dia está atrasado — sobra mais para a tarde e a noite',
+          TINTA,
+        );
+      }
+    }
   }
 
   paragrafo(
     doc,
     'Acumulado até a hora cheia, pela data do pagamento: "até as 12h" é tudo que foi pago até ' +
       '11:59. Mesma régua do faturamento do dia — só pedido pago, sem troca, sem seeding, sem ' +
-      'reenvio.',
+      'reenvio. "% normal" é a média das frações de cada um dos 7 dias anteriores na mesma hora, ' +
+      'não a fração da média: assim dia fraco e dia forte pesam igual na forma da curva.',
     TINTA3,
   );
 }

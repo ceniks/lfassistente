@@ -1,6 +1,7 @@
 import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
 import { reposicao, type Cobertura } from "../data/cobertura.js";
 import type { Patrimonio } from "../data/patrimonio.js";
+import type { MediaDaHora } from "../data/shopify.js";
 import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
@@ -95,7 +96,7 @@ export interface DadosResumo {
   estornos?: Conciliacao | null;
   clientes?: NovosVsRecorrentes | null;
   cobertura?: Cobertura[] | null;
-  media7dPorHora?: Array<{ hora: number; receita: number }>;
+  media7dPorHora?: MediaDaHora[];
   patrimonio?: Patrimonio | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
@@ -228,11 +229,15 @@ export function montarResumo(d: DadosResumo): string {
   // comparação o número não orienta ação nenhuma.
   if (d.vendas.porHora?.length && d.media7dPorHora?.length) {
     const r = ["", "⏱️ RITMO DO DIA"];
+    const totalDoDia = d.vendas.receita;
     for (const h of d.vendas.porHora) {
-      const m = d.media7dPorHora.find((x) => x.hora === h.hora)?.receita ?? 0;
+      const m = d.media7dPorHora.find((x) => x.hora === h.hora);
+      const fracao = totalDoDia > 0 ? h.receita / totalDoDia : 0;
       r.push(
         `${String(h.hora).padStart(2, "0")}h: ${dinheiro(h.receita)}` +
-          (m > 0 ? ` · ${variacao(h.receita, m)} vs média 7d` : ""),
+          (totalDoDia > 0 ? ` (${pct(fracao)} do dia` : "") +
+          (m && m.fracaoDoDia > 0 ? `, normal ${pct(m.fracaoDoDia)})` : totalDoDia > 0 ? ")" : "") +
+          (m && m.receita > 0 ? ` · ${variacao(h.receita, m.receita)} vs média 7d` : ""),
       );
     }
     b.push(r.join("\n"));

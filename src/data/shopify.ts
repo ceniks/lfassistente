@@ -211,6 +211,45 @@ export interface FaturamentoAteAHora {
   pedidos: number;
 }
 
+export interface MediaDaHora {
+  hora: number;
+  receita: number;
+  /** Quanto do dia já costuma estar fechado nessa hora. */
+  fracaoDoDia: number;
+}
+
+/**
+ * O ritmo normal em cada hora de corte, nos dias dados.
+ *
+ * Duas médias, porque respondem a perguntas diferentes. A de reais diz se hoje
+ * está entrando mais ou menos dinheiro que o normal até aqui. A de fração diz
+ * se o dia está *adiantado ou atrasado* — 48% fechados ao meio-dia contra 41%
+ * de costume é um dia que carregou cedo, e isso muda o que esperar da tarde.
+ *
+ * A fração é a média das frações de cada dia, não a fração da média: dia fraco
+ * e dia forte pesam igual na forma da curva, que é o que se quer aqui.
+ */
+export function mediaPorHora(
+  dias: string[],
+  vendasPorData: Map<string, ResumoVendas>,
+): MediaDaHora[] {
+  return HORAS_DE_CORTE.map((hora) => {
+    const reais: number[] = [];
+    const fracoes: number[] = [];
+
+    for (const d of dias) {
+      const v = vendasPorData.get(d);
+      const ate = v?.porHora.find((x) => x.hora === hora);
+      if (!v || !ate) continue;
+      reais.push(ate.receita);
+      if (v.receita > 0) fracoes.push(ate.receita / v.receita);
+    }
+
+    const media = (xs: number[]) => (xs.length ? xs.reduce((t, x) => t + x, 0) / xs.length : 0);
+    return { hora, receita: media(reais), fracaoDoDia: media(fracoes) };
+  });
+}
+
 /** Um cupom de venda no ranking do dia. */
 export interface CupomUsado {
   codigo: string;

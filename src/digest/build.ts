@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { HORAS_DE_CORTE,
+import { mediaPorHora,
   novosVsRecorrentes,
   periodoDeVendas,
   trafegoDoDia,
@@ -107,15 +107,8 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const vendasPorData = periodo.porDia;
   const vendas = vendasPorData.get(dia)!;
 
-  const media7dPorHora = HORAS_DE_CORTE.map((hora) => {
-    const valores = diasAntes(dia, 7)
-      .map((d) => vendasPorData.get(d)?.porHora.find((x) => x.hora === hora)?.receita)
-      .filter((v): v is number => typeof v === 'number');
-    return {
-      hora,
-      receita: valores.length ? valores.reduce((t, v) => t + v, 0) / valores.length : 0,
-    };
-  });
+  const media7dPorHora = mediaPorHora(diasAntes(dia, 7), vendasPorData);
+
 
   const [
     trafego,
