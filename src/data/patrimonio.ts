@@ -13,6 +13,7 @@
 import { estoqueDaLoja, type ItemDeEstoque } from './shopify.js';
 import { chamarFerramenta } from './mcp-client.js';
 import { config } from '../config.js';
+import { CUSTO_POR_CORTE } from './custo-por-corte.js';
 
 export interface Patrimonio {
   loja: {
@@ -299,25 +300,46 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
     if (!atual || c.inicio > atual.inicio) maisRecentePorProduto.set(k, c);
   }
 
-  const codigos = [
-    ...new Set([...candidatos.map((c) => c.codigo), ...[...maisRecentePorProduto.values()].map((c) => c.codigo)]),
-  ];
+  // Só os cortes do galpão precisam de consulta individual — o custo vem da
+  // tabela exportada, não da API. Antes eram uns 70 `buscar_corte` por
+  // boletim; agora são os poucos candidatos a "não subiu no site".
+  const codigos = [...new Set(candidatos.map((c) => c.codigo))];
   const detalhes = new Map<string, Detalhe>();
   const lidos = await emLotes(codigos, 6, async (cod) => [cod, await detalhe(srv, cod)] as const);
   for (const [cod, d] of lidos) if (d) detalhes.set(cod, d);
 
-  // Custo por peça, por produto.
+  /*
+   * Custo por peça, do corte mais recente de cada produto, tirado da tabela
+   * exportada do Corte Pro.
+   *
+   * A API não serve para isto: em parte dos cortes o `Custo total` dela é
+   * cerca de metade do que o painel mostra (Camisa Layla, R$ 21,83 contra
+   * R$ 47,58). Ver o comentário em `custo-por-corte.ts`.
+   */
   const custoPorPeca = new Map<string, number>();
-  for (const [chave, corte] of maisRecentePorProduto) {
-    const d = detalhes.get(corte.codigo);
-    if (!d || !d.pecas || !d.custoTotal) continue;
-    custoPorPeca.set(chave, d.custoTotal / d.pecas);
+  const corteDoCusto = new Map<string, LinhaDeCorte>();
+
+  for (const linha of CUSTO_POR_CORTE) {
+    if (!linha.custoPorPeca) continue;
+    const chave = chaveDeProduto(linha.produto);
+    const atual = corteDoCusto.get(chave);
+    if (atual && atual.inicio >= linha.data) continue;
+
+    corteDoCusto.set(chave, {
+      codigo: linha.corte,
+      produto: linha.produto,
+      // A exportação não traz a categoria; o nome carrega ela na frente.
+      categoria: '',
+      pecas: 0,
+      inicio: linha.data,
+    });
+    custoPorPeca.set(chave, linha.custoPorPeca);
   }
 
   // Índice de formas, para não recalcular a cada produto da loja.
   const formasPorChave = new Map<string, Forma[]>();
-  for (const [chave, corte] of maisRecentePorProduto) {
-    if (custoPorPeca.has(chave)) formasPorChave.set(chave, formasDoCorte(corte));
+  for (const [chave, corte] of corteDoCusto) {
+    formasPorChave.set(chave, formasDoCorte(corte));
   }
 
   const buscarCusto = (titulo: string): number | undefined => {
