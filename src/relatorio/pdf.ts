@@ -428,6 +428,16 @@ function secaoPatrimonio(doc: Doc, d: DadosRelatorio) {
     `${dinheiro(p.loja.valorDeVenda)} a preço de etiqueta` +
       (p.loja.valorDeCusto !== null ? ` · ${dinheiro(p.loja.valorDeCusto)} de custo` : ''),
   );
+  if (p.loja.valorDeCusto !== null && p.loja.valorDeCusto > 0) {
+    const markup = p.loja.valorDeVendaComCusto / p.loja.valorDeCusto;
+    linha(
+      doc,
+      '  markup implícito',
+      `${numero(markup, 2)}x`,
+      'etiqueta ÷ custo, só das peças que têm custo no Corte Pro',
+      markup > 4 ? RUIM : TINTA,
+    );
+  }
   linha(
     doc,
     'Em produção',

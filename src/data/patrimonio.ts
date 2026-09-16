@@ -15,7 +15,13 @@ import { chamarFerramenta } from './mcp-client.js';
 import { config } from '../config.js';
 
 export interface Patrimonio {
-  loja: { pecas: number; valorDeVenda: number; valorDeCusto: number | null };
+  loja: {
+    pecas: number;
+    valorDeVenda: number;
+    valorDeCusto: number | null;
+    /** Preço de etiqueta só das peças que têm custo — o par honesto do markup. */
+    valorDeVendaComCusto: number;
+  };
   /** Peças na oficina e no caseado. Em corte fica de fora: ainda é tecido. */
   emProducao: { pecas: number; cortes: number };
   /** Pronto no galpão e sem entrada no site, a partir da data de corte. */
@@ -103,6 +109,8 @@ interface LinhaDeCorte {
   /** A categoria que o Corte Pro declara, entre parênteses na listagem. */
   categoria: string;
   pecas: number;
+  /** Data de início do corte, em ISO, para achar o mais recente. */
+  inicio: string;
   chegouNoGalpao?: string;
 }
 
@@ -168,6 +176,7 @@ async function listar(srv: NonNullable<ReturnType<typeof servidor>>, status: str
       produto: bruto,
       categoria,
       pecas: Number(m[4]),
+      inicio: isoDeBr(m[5]),
       chegouNoGalpao: m[6],
     });
   }
@@ -227,7 +236,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
 
   if (!srv) {
     return {
-      loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto: null },
+      loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto: null, valorDeVendaComCusto: 0 },
       emProducao: { pecas: 0, cortes: 0 },
       semSubirNoSite: { pecas: 0, cortes: 0, desde, lista: [] },
       semCusto: { produtos: loja.length, pecas: pecasNaLoja },
@@ -253,11 +262,21 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
     (c) => c.chegouNoGalpao && isoDeBr(c.chegouNoGalpao) >= desde,
   );
 
-  // Para o custo por peça basta o corte mais recente de cada produto.
+  /*
+   * Para o custo por peça vale o corte MAIS RECENTE de cada produto, e recente
+   * é pela data de início — não pela ordem em que as listas chegaram.
+   *
+   * A primeira versão pegava o primeiro corte encontrado percorrendo
+   * finalizados, galpão, oficina e caseado nessa ordem. Finalizado é, por
+   * natureza, o mais antigo: qualquer produto com corte de janeiro herdava o
+   * custo de janeiro mesmo tendo corte novo na oficina. O estoque inteiro saía
+   * barato demais, com markup de 5 quando os cortes mostram 3,5.
+   */
   const maisRecentePorProduto = new Map<string, LinhaDeCorte>();
   for (const c of [...finalizados, ...galpao, ...oficina, ...caseado]) {
     const k = chaveDeProduto(c.produto);
-    if (!maisRecentePorProduto.has(k)) maisRecentePorProduto.set(k, c);
+    const atual = maisRecentePorProduto.get(k);
+    if (!atual || c.inicio > atual.inicio) maisRecentePorProduto.set(k, c);
   }
 
   const codigos = [
@@ -299,6 +318,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
   };
 
   let valorDeCusto = 0;
+  let valorDeVendaComCusto = 0;
   let produtosSemCusto = 0;
   let pecasSemCusto = 0;
   for (const item of loja) {
@@ -309,6 +329,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
       continue;
     }
     valorDeCusto += c * item.unidades;
+    valorDeVendaComCusto += item.valorDeVenda;
   }
 
   // Na dúvida o corte conta como já subido: dizer que falta subir peça que já
@@ -316,7 +337,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
   const parados = candidatos.filter((c) => detalhes.get(c.codigo)?.subiu === false);
 
   return {
-    loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto },
+    loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto, valorDeVendaComCusto },
     emProducao,
     semSubirNoSite: {
       pecas: parados.reduce((t, c) => t + c.pecas, 0),
