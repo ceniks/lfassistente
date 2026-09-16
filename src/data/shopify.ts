@@ -454,7 +454,17 @@ export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
   return pedidos.filter((p) => diaDoPagamento(p) === dia);
 }
 
-/** Data (São Paulo) da captura bem-sucedida, ou null se não houve. */
+/**
+ * Data (São Paulo) em que o pedido foi pago.
+ *
+ * Normalmente é a captura. Mas pedido de R$ 0 — o seeding de influencer, com
+ * "Desconto personalizado" cobrindo a peça inteira e FRETEINFLUENCERS o frete —
+ * nasce `PAID` **sem transação nenhuma**: não há dinheiro para capturar. Pela
+ * regra antiga esses pedidos devolviam null e sumiam antes mesmo de serem
+ * classificados, então a linha de seeding marcava R$ 0 todo santo dia. Eram 33
+ * pedidos entre 01 e 15/09, um só com transação. Sem transação e já pago, a
+ * data do pagamento é a da criação.
+ */
 function diaDoPagamento(pedido: OrderNode): string | null {
   for (const t of pedido.transactions) {
     if (t.status !== 'SUCCESS') continue;
@@ -462,6 +472,12 @@ function diaDoPagamento(pedido: OrderNode): string | null {
     if (!t.processedAt) continue;
     return emSaoPaulo(t.processedAt);
   }
+
+  // A busca já filtra por `financial_status:paid`, então chegar aqui sem
+  // transação bem-sucedida significa pedido sem cobrança — não pendente.
+  const semCobranca = pedido.transactions.every((t) => t.status !== 'SUCCESS');
+  if (semCobranca && num(pedido.totalPriceSet) === 0) return emSaoPaulo(pedido.createdAt);
+
   return null;
 }
 
