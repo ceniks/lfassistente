@@ -1063,6 +1063,18 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
 
       paragrafo(
         doc,
+        'A receita é atribuição do AtendePro, não venda nova medida: conta o pedido pago no dia ' +
+          'por uma cliente que recebeu mensagem daquela régua nos 30 dias anteriores, creditado à ' +
+          'última etapa enviada antes da compra. A mensagem não precisa ser do dia. Pedido de ' +
+          'troca fica de fora. Como não existe grupo de controle — ninguém na base deixa de ' +
+          'receber — não dá para saber quanto dessa venda aconteceria de qualquer jeito, e a ' +
+          'mesma compra provavelmente também está atribuída ao Meta. Trate como indício de que a ' +
+          'régua está viva, não como receita incremental.',
+        TINTA3,
+      );
+
+      paragrafo(
+        doc,
         'Falha aqui é quase sempre entrega: a Meta aceitou a mensagem e ela não chegou — número ' +
           'inválido, bloqueado ou sem WhatsApp. É atrito de base, não defeito de configuração. ' +
           (recusas > 0
