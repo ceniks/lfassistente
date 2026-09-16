@@ -6,6 +6,7 @@ import {
   type ResumoVendas,
 } from '../data/shopify.js';
 import { coberturaDosCampeoes } from '../data/cobertura.js';
+import { patrimonioDoDia } from '../data/patrimonio.js';
 import { conferirEstorno } from '../data/conciliacao.js';
 import { midiaDoDia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
@@ -118,6 +119,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     estornos,
     clientes,
     cobertura,
+    patrimonio,
   ] = await Promise.all([
     trafegoDoDia(dia),
     opcional('mídia', () => midiaDoDia(dia)),
@@ -139,6 +141,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     opcional('cobertura', () =>
       coberturaDosCampeoes(vendas, periodo),
     ),
+    opcional('patrimônio', () => patrimonioDoDia()),
   ]);
 
   const dados: DadosResumo = {
@@ -157,6 +160,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     estornos,
     clientes,
     cobertura,
+    patrimonio,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.

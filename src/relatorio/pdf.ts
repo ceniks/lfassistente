@@ -408,6 +408,59 @@ function secaoClientes(doc: Doc, d: DadosRelatorio) {
   }
 }
 
+/**
+ * O check-in geral: quanta roupa a operação tem, e onde ela está.
+ *
+ * Três lugares, três significados. No site é o que pode virar receita hoje. Na
+ * oficina é dinheiro já comprometido que ainda não chegou. No galpão sem subir
+ * é o pior dos três: peça pronta, paga, e invisível para quem compra.
+ */
+function secaoPatrimonio(doc: Doc, d: DadosRelatorio) {
+  const p = d.patrimonio;
+  if (!p) return;
+
+  titulo(doc, 'Check-in geral do estoque');
+
+  linha(
+    doc,
+    'No site',
+    numero(p.loja.pecas),
+    `${dinheiro(p.loja.valorDeVenda)} a preço de etiqueta` +
+      (p.loja.valorDeCusto !== null ? ` · ${dinheiro(p.loja.valorDeCusto)} de custo` : ''),
+  );
+  linha(
+    doc,
+    'Em produção',
+    numero(p.emProducao.pecas),
+    `${numero(p.emProducao.cortes)} cortes na oficina e no caseado`,
+  );
+  linha(
+    doc,
+    'Pronto e fora do site',
+    numero(p.semSubirNoSite.pecas),
+    p.semSubirNoSite.cortes
+      ? `${numero(p.semSubirNoSite.cortes)} corte(s): ${p.semSubirNoSite.lista
+          .map((c) => `${c.produto} (${numero(c.pecas)})`)
+          .join(', ')}`
+      : 'nenhum corte esperando entrada',
+    p.semSubirNoSite.pecas > 0 ? RUIM : BOM,
+  );
+
+  if (p.semCusto.pecas > 0) {
+    paragrafo(
+      doc,
+      `O custo vem do Corte Pro, do corte mais recente de cada peça. ${numero(p.semCusto.pecas)} ` +
+        `peças em ${numero(p.semCusto.produtos)} produtos ficaram sem custo: são modelos que não ` +
+        'têm corte registrado lá (produto antigo ou comprado pronto), então o valor de custo ' +
+        'acima cobre o resto e é um piso, não o total. "Em produção" soma oficina e caseado — em ' +
+        'corte ainda é tecido. O que está fora do site conta cortes que chegaram ao galpão a ' +
+        `partir de ${p.semSubirNoSite.desde.split('-').reverse().join('/')}, quando o campo ` +
+        '"subiu no site" passou a ser preenchido.',
+      TINTA3,
+    );
+  }
+}
+
 function secaoEstoque(doc: Doc, d: DadosRelatorio) {
   const cob = d.cobertura;
   if (!cob?.length) return;
@@ -929,6 +982,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoClientes(doc, d);
     secaoDesconto(doc, d);
     secaoProdutos(doc, d);
+    secaoPatrimonio(doc, d);
     secaoEstoque(doc, d);
     secaoCategorias(doc, d);
     secaoTrafego(doc, d);

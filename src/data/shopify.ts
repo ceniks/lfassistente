@@ -982,6 +982,69 @@ export async function estoqueDeProdutos(ids: string[]): Promise<Map<string, Esto
   return saida;
 }
 
+/** Uma linha do estoque da loja, já com o que ele vale a preço de etiqueta. */
+export interface ItemDeEstoque {
+  produtoId: string;
+  titulo: string;
+  unidades: number;
+  valorDeVenda: number;
+}
+
+/**
+ * O estoque inteiro da loja, produto a produto.
+ *
+ * Só produtos ativos: rascunho e arquivado não estão à venda, e somá-los daria
+ * um patrimônio que não pode virar receita. O valor sai de `price × quantidade`
+ * variante a variante, porque o mesmo produto pode ter preço diferente por
+ * tamanho ou cor. Quantidade negativa (venda sem baixa) entra como zero.
+ */
+export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
+  interface Pagina {
+    products: {
+      nodes: Array<{
+        id: string;
+        title: string;
+        variants: { nodes: Array<{ price: string | null; inventoryQuantity: number | null }> };
+      }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
+  }
+
+  const query = `
+    query EstoqueDaLoja($cursor: String) {
+      products(first: 50, after: $cursor, query: "status:active") {
+        nodes {
+          id
+          title
+          variants(first: 100) { nodes { price inventoryQuantity } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  `;
+
+  const saida: ItemDeEstoque[] = [];
+  let cursor: string | null = null;
+
+  do {
+    const d: Pagina = await admin<Pagina>(query, { cursor });
+    for (const p of d.products.nodes) {
+      let unidades = 0;
+      let valorDeVenda = 0;
+      for (const v of p.variants.nodes) {
+        const q = Math.max(0, v.inventoryQuantity ?? 0);
+        if (!q) continue;
+        unidades += q;
+        valorDeVenda += Number(v.price ?? 0) * q;
+      }
+      if (unidades > 0) saida.push({ produtoId: p.id, titulo: p.title, unidades, valorDeVenda });
+    }
+    cursor = d.products.pageInfo.hasNextPage ? d.products.pageInfo.endCursor : null;
+  } while (cursor);
+
+  return saida;
+}
+
 /* ------------------------------------------------------------------ *
  * Estornos
  * ------------------------------------------------------------------ */

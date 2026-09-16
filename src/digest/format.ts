@@ -1,5 +1,6 @@
 import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
 import { reposicao, type Cobertura } from "../data/cobertura.js";
+import type { Patrimonio } from "../data/patrimonio.js";
 import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
@@ -94,6 +95,7 @@ export interface DadosResumo {
   estornos?: Conciliacao | null;
   clientes?: NovosVsRecorrentes | null;
   cobertura?: Cobertura[] | null;
+  patrimonio?: Patrimonio | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
 }
@@ -218,6 +220,25 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     b.push(cat.join("\n"));
+  }
+
+  // --- Check-in do estoque ---
+  // Três números e nada mais: o resumo do WhatsApp é para ler no semáforo. O
+  // detalhe por corte fica no PDF.
+  if (d.patrimonio) {
+    const p = d.patrimonio;
+    const est = ["", "🧵 ESTOQUE HOJE"];
+    est.push(
+      `No site: ${numero(p.loja.pecas)} peças · ${dinheiro(p.loja.valorDeVenda)} de venda` +
+        (p.loja.valorDeCusto !== null ? ` · ${dinheiro(p.loja.valorDeCusto)} de custo` : ""),
+    );
+    est.push(`Em produção: ${numero(p.emProducao.pecas)} peças`);
+    est.push(
+      p.semSubirNoSite.pecas > 0
+        ? `⚠️ Pronto e fora do site: ${numero(p.semSubirNoSite.pecas)} peças em ${numero(p.semSubirNoSite.cortes)} corte(s)`
+        : "Nada pronto esperando entrada no site",
+    );
+    b.push(est.join("\n"));
   }
 
   // --- Estoque dos campeões ---

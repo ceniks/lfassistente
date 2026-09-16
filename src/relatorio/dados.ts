@@ -8,6 +8,7 @@ import { reversasDoDia, temTroque, type Reversas } from '../data/troque.js';
 import { conferirEstorno, type Conciliacao } from '../data/conciliacao.js';
 import { novosVsRecorrentes, type NovosVsRecorrentes } from '../data/shopify.js';
 import { coberturaDosCampeoes, type Cobertura } from '../data/cobertura.js';
+import { patrimonioDoDia, type Patrimonio } from '../data/patrimonio.js';
 
 /**
  * O material do boletim completo.
@@ -52,6 +53,7 @@ export interface DadosRelatorio {
   estornos: Conciliacao | null;
   clientes: NovosVsRecorrentes | null;
   cobertura: Cobertura[] | null;
+  patrimonio: Patrimonio | null;
   leitura?: string;
 }
 
@@ -118,6 +120,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     estornos,
     clientes,
     cobertura,
+    patrimonio,
   ] = await Promise.all([
       trafegoDoDia(dia),
       Promise.all(seteDias.map((d) => trafegoDoDia(d))),
@@ -133,6 +136,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       opcional('cobertura', () =>
         coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
       ),
+      opcional('patrimônio', () => patrimonioDoDia()),
     ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
@@ -168,5 +172,6 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     estornos,
     clientes,
     cobertura,
+    patrimonio,
   };
 }
