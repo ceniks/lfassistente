@@ -824,9 +824,19 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       trocas++;
       troca.total++;
 
-      // Pedido criado pelo app do TroqueCommerce é troca direta: peça trocada
-      // por peça, sem cupom no meio. Qualquer outro pedido que caiu aqui veio
-      // por um cupom TROCA aplicado numa compra na loja.
+      /*
+       * Os dois caminhos do Troquecommerce, que o Luis chama pelo nome da ação
+       * no painel:
+       *
+       *  - **troca por produto**: a cliente escolhe a peça nova na hora da
+       *    troca, e o pedido nasce pelo app do Troquecommerce com a peça a
+       *    R$ 0,01. Não há cupom no meio.
+       *  - **troca**: a cliente recebe um cupom TROCA e compra depois no site.
+       *    O pedido é comum e o total dele é a diferença que ela pagou.
+       *
+       * O `reverse_type` da API não separa os dois — ele devolve "Troca",
+       * "Devolução", "Sem Reembolso" e "Troca e devolução". Quem separa é o
+       * pedido gerado, e é por isso que a classificação mora aqui.
       if (norm(p.app?.name ?? '').includes('troque')) {
         troca.direta.pedidos++;
         for (const item of p.lineItems.nodes) {

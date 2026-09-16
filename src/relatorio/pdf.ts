@@ -756,21 +756,25 @@ function secaoDesconto(doc: Doc, d: DadosRelatorio) {
   linha(doc, 'Pedidos de troca', numero(tro.total), 'fora do faturamento, por definição');
   linha(
     doc,
-    'Por cupom de troca',
+    'Troca (cupom)',
     numero(tro.porCupom.pedidos),
-    `${dinheiro(tro.porCupom.valor)} abatidos em cupom`,
+    `${dinheiro(tro.porCupom.valor)} abatidos em cupom · ${dinheiro(tro.porCupom.diferencaPaga)} pagos de diferença`,
   );
   linha(
     doc,
-    'Troca direta',
+    'Troca por produto',
     numero(tro.direta.pedidos),
     `${numero(tro.direta.pecas)} peças · ${dinheiro(tro.direta.valorAPrecoDeSite)} a preço de site`,
   );
   paragrafo(
     doc,
-    'A troca direta chega do Troquecommerce com a peça a R$ 0,01, então o valor cobrado não diz nada. ' +
-      'O que aparece aqui é quanto aquelas peças custariam na loja — a medida do que saiu do estoque. ' +
-      'Só entram pedidos com pagamento confirmado no dia.',
+    'São os dois caminhos do Troquecommerce, e eles se distinguem pelo pedido que geram. Na ' +
+      '**troca por produto** a cliente escolhe a peça nova na hora, e o pedido nasce pelo app do ' +
+      'Troquecommerce com a peça a R$ 0,01 — o valor cobrado não diz nada, então o que aparece ' +
+      'aqui é quanto aquelas peças custariam na loja, a medida do que saiu do estoque. Na ' +
+      '**troca** a cliente recebe um cupom TROCA e compra depois no site: o pedido é normal e o ' +
+      'total dele é a diferença que ela pagou além do cupom. Só entram pedidos com pagamento ' +
+      'confirmado no dia.',
     TINTA3,
   );
 }
