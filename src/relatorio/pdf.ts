@@ -769,12 +769,11 @@ function secaoDesconto(doc: Doc, d: DadosRelatorio) {
   paragrafo(
     doc,
     'São os dois caminhos do Troquecommerce, e eles se distinguem pelo pedido que geram. Na ' +
-      '**troca por produto** a cliente escolhe a peça nova na hora, e o pedido nasce pelo app do ' +
-      'Troquecommerce com a peça a R$ 0,01 — o valor cobrado não diz nada, então o que aparece ' +
-      'aqui é quanto aquelas peças custariam na loja, a medida do que saiu do estoque. Na ' +
-      '**troca** a cliente recebe um cupom TROCA e compra depois no site: o pedido é normal e o ' +
-      'total dele é a diferença que ela pagou além do cupom. Só entram pedidos com pagamento ' +
-      'confirmado no dia.',
+      'troca por produto a cliente fica no mesmo modelo e só muda tamanho ou cor, então nunca há ' +
+      'diferença a pagar; o pedido nasce pelo app do Troquecommerce com a peça a R$ 0,01 e o que ' +
+      'aparece aqui é quanto aquelas peças custariam na loja. Na troca a cliente recebe um cupom ' +
+      'TROCA e compra depois no site: o pedido é normal e o total dele é a diferença que ela pagou ' +
+      'além do cupom. Só entram pedidos com pagamento confirmado no dia.',
     TINTA3,
   );
 }

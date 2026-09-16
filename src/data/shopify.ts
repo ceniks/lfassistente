@@ -828,9 +828,10 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
        * Os dois caminhos do Troquecommerce, que o Luis chama pelo nome da ação
        * no painel:
        *
-       *  - **troca por produto**: a cliente escolhe a peça nova na hora da
-       *    troca, e o pedido nasce pelo app do Troquecommerce com a peça a
-       *    R$ 0,01. Não há cupom no meio.
+       *  - **troca por produto**: a cliente troca pelo MESMO modelo em outro
+       *    tamanho ou cor. Por isso nunca há diferença a pagar. O pedido nasce
+       *    pelo app do Troquecommerce com a peça a R$ 0,01, sem cupom no meio,
+       *    e a peça devolvida volta para o estoque do mesmo produto.
        *  - **troca**: a cliente recebe um cupom TROCA e compra depois no site.
        *    O pedido é comum e o total dele é a diferença que ela pagou.
        *
