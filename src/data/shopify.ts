@@ -293,6 +293,21 @@ const ORDERS_QUERY = `
 const FOLGA_PAGAMENTO = 7;
 
 /**
+ * Até onde a cauda de pagamento atrasado é procurada.
+ *
+ * Troca direta do TroqueCommerce nasce a R$ 0,02 e fica esperando a cliente
+ * concluir — pode levar semanas. Em 15/09, das 28 trocas pagas no dia, 18
+ * tinham sido criadas antes, a mais antiga em 26/08, a um dia da borda da
+ * busca. Sessenta dias é o prazo que o Luis observa na prática.
+ *
+ * Varrer 60 dias de pedidos criados custaria minutos. Por isso a cauda é
+ * buscada à parte, filtrando por `updated_at`: pedido antigo que não foi
+ * tocado no período não pode ter sido pago nele. Medido em 16/09: 1.544
+ * pedidos em 29s, contra a varredura inteira que passa de meia hora.
+ */
+const FOLGA_LONGA = 60;
+
+/**
  * Busca os pedidos criados num intervalo, paginando.
  *
  * Esta é a única função que fala com a API de pedidos. Tudo o mais — um dia, uma
@@ -305,7 +320,11 @@ const FOLGA_PAGAMENTO = 7;
  * multiplicava o trabalho por oito e derrubava a conta no limite de requisições.
  * Uma busca só, com o intervalo inteiro, resolve o mesmo problema.
  */
-export async function pedidosCriadosEntre(de: string, ate: string): Promise<OrderNode[]> {
+export async function pedidosCriadosEntre(
+  de: string,
+  ate: string,
+  filtroExtra?: string,
+): Promise<OrderNode[]> {
   const q = [
     // As aspas não são estilo: sem elas a busca da Shopify trata o "-03:00" do
     // fuso como operador de negação e engole pedidos em silêncio. Medido em
@@ -319,7 +338,10 @@ export async function pedidosCriadosEntre(de: string, ate: string): Promise<Orde
     // cobertura de estoque precisa de todo pedido: peça de um Pix ainda não
     // compensado já saiu da prateleira, e esperar a compensação para contar
     // demanda atrasa justamente o alerta de ruptura.
-  ].join(' ');
+    filtroExtra ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   interface Pagina {
     orders: { nodes: OrderNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
@@ -401,7 +423,27 @@ export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> 
   const inicioBusca = new Date(`${primeiro}T12:00:00-03:00`);
   inicioBusca.setDate(inicioBusca.getDate() - FOLGA_PAGAMENTO);
 
-  const pedidos = await pedidosCriadosEntre(inicioBusca.toISOString().slice(0, 10), ultimo);
+  const inicioDaCauda = new Date(`${primeiro}T12:00:00-03:00`);
+  inicioDaCauda.setDate(inicioDaCauda.getDate() - FOLGA_LONGA);
+
+  const fimDaCauda = new Date(inicioBusca);
+  fimDaCauda.setDate(fimDaCauda.getDate() - 1);
+
+  const [doPeriodo, cauda] = await Promise.all([
+    pedidosCriadosEntre(inicioBusca.toISOString().slice(0, 10), ultimo),
+    pedidosCriadosEntre(
+      inicioDaCauda.toISOString().slice(0, 10),
+      fimDaCauda.toISOString().slice(0, 10),
+      `updated_at:>='${primeiro}T00:00:00-03:00'`,
+    ),
+  ]);
+
+  // As duas faixas de criação não se sobrepõem, mas deduplicar por id é barato
+  // e protege de mudança futura nas bordas.
+  const porId = new Map<string, OrderNode>();
+  for (const p of [...doPeriodo, ...cauda]) porId.set(p.id, p);
+  const pedidos = [...porId.values()];
+
   const porDiaDePagamento = agruparPorDiaDePagamento(pedidos);
 
   const porDia = new Map<string, ResumoVendas>();
