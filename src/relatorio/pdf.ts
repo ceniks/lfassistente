@@ -470,8 +470,10 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
   paragrafo(
     doc,
     'Cobertura é só o estoque da Shopify dividido pela saída média diária dos últimos 15 dias — ' +
-      'peça que ainda não está no site não vende hoje. A saída soma venda e troca (a troca não é ' +
-      'receita, mas tira a peça da prateleira igual) e deixa de fora o seeding de influencer. ' +
+      'peça que ainda não está no site não vende hoje. A saída conta todo pedido criado no ' +
+      'período, não só o pago: troca, seeding e Pix ainda não compensado tiram peça da prateleira ' +
+      'igual. Só o cancelado fica de fora, porque a peça volta. Por isso esta conta não bate com ' +
+      'o faturamento, e não deve bater. '+
       '"No ritmo 7d" repete a conta só com a última semana: quando ele é bem menor que a cobertura, ' +
       'a peça acelerou e a média de 15 dias ainda não percebeu. "Reposição" é o que ainda vai virar ' +
       'estoque: corte, oficina e caseado mais os cortes no galpão, a partir de 30/03/2026, sem ' +

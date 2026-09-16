@@ -175,6 +175,8 @@ async function admin<T>(
 interface OrderNode extends PedidoClassificavel {
   id: string;
   createdAt: string;
+  cancelledAt: string | null;
+  displayFinancialStatus: string | null;
   totalPriceSet: { shopMoney: { amount: string } };
   subtotalPriceSet: { shopMoney: { amount: string } } | null;
   totalDiscountsSet: { shopMoney: { amount: string } } | null;
@@ -257,6 +259,8 @@ const ORDERS_QUERY = `
         id
         name
         createdAt
+        cancelledAt
+        displayFinancialStatus
         tags
         discountCodes
         app { name }
@@ -310,7 +314,11 @@ export async function pedidosCriadosEntre(de: string, ate: string): Promise<Orde
     // nenhum aparecendo, é o pior defeito possível neste arquivo.
     `created_at:>='${de}T00:00:00-03:00'`,
     `created_at:<='${ate}T23:59:59-03:00'`,
-    'financial_status:paid',
+    // Sem filtro de pagamento de propósito. O faturamento continua saindo só
+    // dos pagos — quem separa é `diaDoPagamento`, que exige captura. Mas a
+    // cobertura de estoque precisa de todo pedido: peça de um Pix ainda não
+    // compensado já saiu da prateleira, e esperar a compensação para contar
+    // demanda atrasa justamente o alerta de ruptura.
   ].join(' ');
 
   interface Pagina {
@@ -353,10 +361,10 @@ export function agruparPorDiaDePagamento(pedidos: OrderNode[]): Map<string, Orde
 /**
  * Quanto cada produto tirou do estoque no período, para calcular cobertura.
  *
- * Conta venda e troca. A troca não entra no faturamento — não é receita — mas
- * a peça sai da prateleira igual, e cobertura é sobre peça, não sobre dinheiro.
- * O seeding de influencer fica de fora: é volume decidido por campanha, não
- * demanda, e entraria como pico que não se repete.
+ * Conta **todo pedido criado na janela**: pago, pendente de Pix, troca, seeding
+ * de influencer, reenvio. Nenhum deles é receita do dia, mas todos tiram peça
+ * da prateleira — e cobertura é sobre peça, não sobre dinheiro. Só o pedido
+ * cancelado fica de fora, porque a peça volta.
  */
 export interface UnidadesDeProduto {
   titulo: string;
@@ -405,31 +413,47 @@ export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> 
   // sinal de que a base envelheceu — casaco saindo de temporada cai antes de a
   // média de quinze dias perceber.
   const recentes = new Set(ordenados.slice(-7));
+  const daJanela = new Set(dias);
 
   for (const dia of dias) {
     const doDia = porDiaDePagamento.get(dia) ?? [];
-    const recente = recentes.has(dia);
     porDia.set(dia, agregar(doDia, dia));
     if (doDia.length) {
       diasComVenda++;
-      if (recente) diasComVenda7d++;
+      if (recentes.has(dia)) diasComVenda7d++;
     }
+  }
 
-    for (const p of doDia) {
-      const cat = categoria(p);
-      if (cat !== 'venda' && cat !== 'troca') continue;
-      for (const item of p.lineItems.nodes) {
-        const atual = unidadesPorProduto.get(item.title) ?? {
-          titulo: item.title,
-          produtoId: item.product?.id ?? null,
-          unidades: 0,
-          unidades7d: 0,
-        };
-        atual.unidades += item.quantity;
-        if (recente) atual.unidades7d += item.quantity;
-        if (!atual.produtoId && item.product?.id) atual.produtoId = item.product.id;
-        unidadesPorProduto.set(item.title, atual);
-      }
+  /*
+   * A saída de estoque é contada por fora do faturamento, de propósito.
+   *
+   * Faturamento pergunta "quanto entrou de dinheiro naquele dia" e por isso
+   * agrupa por data de pagamento e só olha pedido pago. Cobertura pergunta
+   * "quantas peças saem por dia", e aí vale todo pedido: pago, pendente de Pix,
+   * troca, seeding de influencer, reenvio. A peça foi separada e mandada
+   * independente de o dinheiro ter compensado, e é a peça que falta na
+   * prateleira. Por isso o agrupamento aqui é por data de criação.
+   *
+   * Pedido cancelado fica de fora: a peça volta para o estoque.
+   */
+  for (const p of pedidos) {
+    if (p.cancelledAt) continue;
+
+    const dia = emSaoPaulo(p.createdAt);
+    if (!daJanela.has(dia)) continue;
+
+    const recente = recentes.has(dia);
+    for (const item of p.lineItems.nodes) {
+      const atual = unidadesPorProduto.get(item.title) ?? {
+        titulo: item.title,
+        produtoId: item.product?.id ?? null,
+        unidades: 0,
+        unidades7d: 0,
+      };
+      atual.unidades += item.quantity;
+      if (recente) atual.unidades7d += item.quantity;
+      if (!atual.produtoId && item.product?.id) atual.produtoId = item.product.id;
+      unidadesPorProduto.set(item.title, atual);
     }
   }
 
@@ -473,10 +497,14 @@ function diaDoPagamento(pedido: OrderNode): string | null {
     return emSaoPaulo(t.processedAt);
   }
 
-  // A busca já filtra por `financial_status:paid`, então chegar aqui sem
-  // transação bem-sucedida significa pedido sem cobrança — não pendente.
+  // Sem transação, já marcado como pago e com total zero: não havia o que
+  // capturar. O status precisa ser conferido aqui porque a busca não filtra
+  // mais por pagamento — pendente também chega nesta função.
   const semCobranca = pedido.transactions.every((t) => t.status !== 'SUCCESS');
-  if (semCobranca && num(pedido.totalPriceSet) === 0) return emSaoPaulo(pedido.createdAt);
+  const jaPago = (pedido.displayFinancialStatus ?? '').toUpperCase() === 'PAID';
+  if (semCobranca && jaPago && num(pedido.totalPriceSet) === 0) {
+    return emSaoPaulo(pedido.createdAt);
+  }
 
   return null;
 }

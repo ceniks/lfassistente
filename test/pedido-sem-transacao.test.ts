@@ -14,6 +14,8 @@ const base = {
   discountCodes: [] as string[],
   app: { name: 'Draft Orders' },
   subtotalPriceSet: null,
+  cancelledAt: null,
+  displayFinancialStatus: 'PAID',
   totalDiscountsSet: { shopMoney: { amount: '927.39' } },
   lineItems: { nodes: [] },
 };
@@ -38,6 +40,16 @@ describe('dia do pagamento', () => {
       transactions: [],
     });
     expect([...agruparPorDiaDePagamento([p]).keys()]).toEqual(['2026-09-15']);
+  });
+
+  it('não adota a criação quando o pedido de R$ 0 ainda não está pago', () => {
+    const p = pedido({
+      createdAt: '2026-09-15T13:27:44Z',
+      displayFinancialStatus: 'PENDING',
+      totalPriceSet: { shopMoney: { amount: '0.0' } },
+      transactions: [],
+    });
+    expect(agruparPorDiaDePagamento([p]).size).toBe(0);
   });
 
   it('não adota a criação quando o pedido tem valor e nenhuma captura', () => {
