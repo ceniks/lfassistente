@@ -310,7 +310,7 @@ export interface ResumoVendas {
   trocasDoDia: TrocasDoDia;
   topProdutos: Array<{ titulo: string; pecas: number; receita: number }>;
   /** Todas as peças vendidas no dia, por produto — base do CMV. */
-  pecasVendidas: Array<{ titulo: string; pecas: number }>;
+  pecasVendidas: Array<{ titulo: string; pecas: number; receita: number }>;
   /** Peças dadas em seeding, por produto. Custo real que não aparece na mídia. */
   pecasDeSeeding: Array<{ titulo: string; pecas: number }>;
   /** Frete cobrado da cliente, já dentro da receita. */
@@ -948,7 +948,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     trocasDoDia: troca,
     topProdutos,
     pecasVendidas: [...porProduto.entries()]
-      .map(([titulo, v]) => ({ titulo, pecas: v.pecas }))
+      .map(([titulo, v]) => ({ titulo, pecas: v.pecas, receita: v.receita }))
       .sort((a, b) => b.pecas - a.pecas),
     pecasDeSeeding: [...seedingPorProduto.entries()]
       .map(([titulo, pecas]) => ({ titulo, pecas }))

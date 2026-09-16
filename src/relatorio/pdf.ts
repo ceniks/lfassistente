@@ -593,8 +593,8 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     doc,
     '(-) Custo das peças',
     dinheiro(m.cmv),
-    `${daReceita(m.cmv)} da receita · ${numero(m.pecasComCusto)} peças` +
-      (m.pecasSemCusto > 0 ? ` · ${numero(m.pecasSemCusto)} sem custo conhecido` : ''),
+    `${daReceita(m.cmv)} da receita · ${numero(m.pecasQueSairam)} peças que saíram` +
+      (m.pecasDeSeeding > 0 ? ` (${numero(m.pecasDeSeeding)} de seeding)` : ''),
   );
   linha(doc, '(=) Margem bruta', dinheiro(m.margemBruta), daReceita(m.margemBruta), BOM);
 
@@ -619,15 +619,6 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     `cobrado da cliente: ${dinheiro(m.freteCobrado)}`,
     m.custoDeFrete > 0 ? TINTA : RUIM,
   );
-  if (m.pecasDeSeeding > 0) {
-    linha(
-      doc,
-      '(-) Peças de seeding',
-      dinheiro(m.custoDoSeeding),
-      `${numero(m.pecasDeSeeding)} peças a custo — saiu do estoque, não da verba de mídia`,
-    );
-  }
-
   linha(
     doc,
     '(=) Margem de contribuição',
@@ -639,7 +630,13 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
   paragrafo(
     doc,
     'Contribuição, não lucro: falta o custo fixo — salários, aluguel, sistemas — que não é ' +
-      'diário. O custo das peças vem do Corte Pro, do corte mais recente de cada modelo. ' +
+      'diário. O custo das peças cobre tudo que saiu do estoque, vendido e seeding, e vem do ' +
+      'Corte Pro, do corte mais recente de cada modelo. ' +
+      (m.pecasSemCusto > 0
+        ? `${numero(m.pecasSemCusto)} peças são de modelos sem corte registrado lá e entraram ` +
+          `por estimativa, ao mesmo custo sobre preço das demais — ${dinheiro(m.custoEstimado)} ` +
+          'do total acima. '
+        : '') +
       (m.parametrosFaltando.length
         ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem acima está ` +
           'otimista nesses pontos — o número real é menor.'

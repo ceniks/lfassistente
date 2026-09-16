@@ -16,10 +16,15 @@ import type { ResumoVendas } from './shopify.js';
 
 export interface Margem {
   receita: number;
-  /** Custo das peças vendidas. */
+  /** Custo de tudo que saiu do estoque: vendido mais seeding. */
   cmv: number;
   pecasComCusto: number;
+  /** Peças sem custo no Corte Pro, entram no CMV por estimativa. */
   pecasSemCusto: number;
+  /** Quanto do CMV é estimativa, não custo medido. */
+  custoEstimado: number;
+  /** Total de peças que saíram: vendidas mais seeding. */
+  pecasQueSairam: number;
   margemBruta: number;
   midia: number;
   taxaDePagamento: number;
@@ -72,26 +77,53 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
   const c = config();
   const custoDe = tabelaDeCusto();
 
-  let cmv = 0;
+  /*
+   * O CMV é o custo de TUDO que saiu do estoque no dia: as peças vendidas mais
+   * as peças de seeding. O seeding não gera receita, mas a peça saiu e foi
+   * paga — deixá-lo fora do custo faz a margem bruta parecer melhor do que é.
+   *
+   * Peça sem custo no Corte Pro não pode simplesmente sumir da conta, que era
+   * o que acontecia: em 15/09, 63 das 353 peças vendidas ficavam de fora e o
+   * CMV saía 18% menor. Elas entram por estimativa, ao mesmo custo sobre preço
+   * das peças que têm custo conhecido, e o boletim diz quantas foram.
+   */
+  let custoConhecido = 0;
+  let receitaComCusto = 0;
   let pecasComCusto = 0;
   let pecasSemCusto = 0;
+  let receitaSemCusto = 0;
 
   for (const p of vendas.pecasVendidas) {
     const unitario = custoDe(p.titulo);
     if (unitario === undefined) {
       pecasSemCusto += p.pecas;
+      receitaSemCusto += p.receita;
       continue;
     }
-    cmv += unitario * p.pecas;
+    custoConhecido += unitario * p.pecas;
+    receitaComCusto += p.receita;
     pecasComCusto += p.pecas;
   }
 
+  const razaoDeCusto = receitaComCusto > 0 ? custoConhecido / receitaComCusto : 0;
+  const custoMedioPorPeca = pecasComCusto > 0 ? custoConhecido / pecasComCusto : 0;
+  const custoEstimado = receitaSemCusto * razaoDeCusto;
+
   let custoDoSeeding = 0;
   let pecasDeSeeding = 0;
+  let pecasDeSeedingEstimadas = 0;
   for (const p of vendas.pecasDeSeeding) {
     pecasDeSeeding += p.pecas;
-    custoDoSeeding += (custoDe(p.titulo) ?? 0) * p.pecas;
+    const unitario = custoDe(p.titulo);
+    if (unitario === undefined) {
+      pecasDeSeedingEstimadas += p.pecas;
+      custoDoSeeding += custoMedioPorPeca * p.pecas;
+    } else {
+      custoDoSeeding += unitario * p.pecas;
+    }
   }
+
+  const cmv = custoConhecido + custoEstimado + custoDoSeeding;
 
   const taxaDePagamento = vendas.porGateway.reduce(
     (t, g) => t + g.valor * taxaDoGateway(g.gateway),
@@ -103,7 +135,7 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
 
   const margemBruta = vendas.receita - cmv;
   const margemDeContribuicao =
-    margemBruta - midia - taxaDePagamento - taxaDaPlataforma - custoDeFrete - custoDoSeeding;
+    margemBruta - midia - taxaDePagamento - taxaDaPlataforma - custoDeFrete;
 
   const parametrosFaltando: string[] = [];
   if (!c.CUSTO_FRETE_POR_PEDIDO) parametrosFaltando.push('custo do frete');
@@ -113,6 +145,8 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     cmv,
     pecasComCusto,
     pecasSemCusto,
+    custoEstimado: custoEstimado + custoMedioPorPeca * pecasDeSeedingEstimadas,
+    pecasQueSairam: pecasComCusto + pecasSemCusto + pecasDeSeeding,
     margemBruta,
     midia,
     taxaDePagamento,
