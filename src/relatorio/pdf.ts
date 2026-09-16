@@ -572,6 +572,76 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
  * diferença: se às 12h já estamos 20% abaixo, ainda dá tarde para reagir; se
  * descobrir isso só no boletim da manhã seguinte, não dá mais.
  */
+/**
+ * O que sobrou do dia.
+ *
+ * Fica logo depois de vendas porque é a pergunta que vendas levanta. A ordem
+ * das linhas é a da conta, de cima para baixo, para ser conferível a olho: o
+ * leitor consegue refazer a subtração sem calculadora.
+ */
+function secaoMargem(doc: Doc, d: DadosRelatorio) {
+  const m = d.margem;
+  if (!m || m.receita <= 0) return;
+
+  titulo(doc, 'Margem do dia');
+
+  const daReceita = (v: number) => pct(v / m.receita);
+
+  linha(doc, 'Receita', dinheiro(m.receita));
+  linha(
+    doc,
+    '(−) Custo das peças',
+    dinheiro(m.cmv),
+    `${daReceita(m.cmv)} da receita · ${numero(m.pecasComCusto)} peças` +
+      (m.pecasSemCusto > 0 ? ` · ${numero(m.pecasSemCusto)} sem custo conhecido` : ''),
+  );
+  linha(doc, '(=) Margem bruta', dinheiro(m.margemBruta), daReceita(m.margemBruta), BOM);
+
+  linha(doc, '(−) Mídia', dinheiro(m.midia), `${daReceita(m.midia)} da receita`);
+  linha(
+    doc,
+    '(−) Taxa de pagamento',
+    m.taxaDePagamento > 0 ? dinheiro(m.taxaDePagamento) : 'não configurada',
+    m.taxaDePagamento > 0 ? daReceita(m.taxaDePagamento) : 'parâmetro em branco',
+    m.taxaDePagamento > 0 ? TINTA : RUIM,
+  );
+  linha(
+    doc,
+    '(−) Frete',
+    m.custoDeFrete > 0 ? dinheiro(m.custoDeFrete) : 'não configurado',
+    `cobrado da cliente: ${dinheiro(m.freteCobrado)}`,
+    m.custoDeFrete > 0 ? TINTA : RUIM,
+  );
+  if (m.pecasDeSeeding > 0) {
+    linha(
+      doc,
+      '(−) Peças de seeding',
+      dinheiro(m.custoDoSeeding),
+      `${numero(m.pecasDeSeeding)} peças a custo — saiu do estoque, não da verba de mídia`,
+    );
+  }
+
+  linha(
+    doc,
+    '(=) Margem de contribuição',
+    dinheiro(m.margemDeContribuicao),
+    daReceita(m.margemDeContribuicao),
+    m.margemDeContribuicao > 0 ? BOM : RUIM,
+  );
+
+  paragrafo(
+    doc,
+    'Contribuição, não lucro: falta o custo fixo — salários, aluguel, sistemas — que não é ' +
+      'diário. O custo das peças vem do Corte Pro, do corte mais recente de cada modelo. ' +
+      (m.parametrosFaltando.length
+        ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem abaixo está ` +
+          'otimista nesses pontos — o número real é menor.'
+        : 'Taxa de pagamento e frete são parâmetros, não medições: a Shopify não devolve a taxa ' +
+          'do PagBank nem do Mercado Pago, e o custo do frete está na fatura dos Correios.'),
+    TINTA3,
+  );
+}
+
 function secaoRitmo(doc: Doc, d: DadosRelatorio) {
   const horas = d.vendas.porHora;
   if (!horas?.length) return;
@@ -1185,6 +1255,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoClientes(doc, d);
     secaoDesconto(doc, d);
     secaoProdutos(doc, d);
+    secaoMargem(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
     secaoEstoque(doc, d);

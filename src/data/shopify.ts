@@ -180,7 +180,13 @@ interface OrderNode extends PedidoClassificavel {
   totalPriceSet: { shopMoney: { amount: string } };
   subtotalPriceSet: { shopMoney: { amount: string } } | null;
   totalDiscountsSet: { shopMoney: { amount: string } } | null;
-  transactions: Array<{ processedAt: string | null; kind: string; status: string }>;
+  totalShippingPriceSet: { shopMoney: { amount: string } } | null;
+  transactions: Array<{
+    processedAt: string | null;
+    kind: string;
+    status: string;
+    gateway?: string | null;
+  }>;
   lineItems: {
     nodes: Array<{
       title: string;
@@ -303,6 +309,14 @@ export interface ResumoVendas {
   categorias: CategoriaVendida[];
   trocasDoDia: TrocasDoDia;
   topProdutos: Array<{ titulo: string; pecas: number; receita: number }>;
+  /** Todas as peças vendidas no dia, por produto — base do CMV. */
+  pecasVendidas: Array<{ titulo: string; pecas: number }>;
+  /** Peças dadas em seeding, por produto. Custo real que não aparece na mídia. */
+  pecasDeSeeding: Array<{ titulo: string; pecas: number }>;
+  /** Frete cobrado da cliente, já dentro da receita. */
+  freteCobrado: number;
+  /** Quanto passou por cada meio de pagamento, para aplicar a taxa certa. */
+  porGateway: Array<{ gateway: string; valor: number }>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -324,7 +338,8 @@ const ORDERS_QUERY = `
         totalPriceSet { shopMoney { amount } }
         subtotalPriceSet { shopMoney { amount } }
         totalDiscountsSet { shopMoney { amount } }
-        transactions(first: 10) { processedAt kind status }
+        totalShippingPriceSet { shopMoney { amount } }
+        transactions(first: 10) { processedAt kind status gateway }
         lineItems(first: 50) {
           nodes {
             title
@@ -766,6 +781,9 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   const porCategoria = new Map<string, { pecas: number; receita: number }>();
   const porCupom = new Map<string, { pedidos: number; valor: number }>();
   const porHora = HORAS_DE_CORTE.map((hora) => ({ hora, receita: 0, pedidos: 0 }));
+  const seedingPorProduto = new Map<string, number>();
+  const porGateway = new Map<string, number>();
+  let freteCobrado = 0;
 
   const troca = {
     total: 0,
@@ -778,6 +796,12 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
 
     if (cat === 'influencer') {
       influencers++;
+      for (const item of p.lineItems.nodes) {
+        seedingPorProduto.set(
+          item.title,
+          (seedingPorProduto.get(item.title) ?? 0) + item.quantity,
+        );
+      }
       // Seeding sai a R$ 0, então não mexe na receita. Mas carrega de R$ 680 a
       // R$ 960 de desconto por pedido, e isso NÃO é concessão de preço — é
       // custo de mídia. Por isso vai em linha própria no resumo.
@@ -819,6 +843,15 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     contagem++;
     const total = num(p.totalPriceSet);
     receita += total;
+    freteCobrado += num(p.totalShippingPriceSet);
+
+    // O meio de pagamento decide a taxa. Um dia com muito Pix custa bem menos
+    // que o mesmo faturamento no cartão parcelado.
+    const captura = p.transactions.find(
+      (t) => t.status === 'SUCCESS' && (t.kind === 'SALE' || t.kind === 'CAPTURE'),
+    );
+    const via = (captura?.gateway ?? 'não identificado').trim();
+    porGateway.set(via, (porGateway.get(via) ?? 0) + total);
 
     // Acumulado por hora de corte. O pedido entra em toda hora posterior ao
     // pagamento, então cada linha é o total do dia até ali.
@@ -914,6 +947,16 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     categorias,
     trocasDoDia: troca,
     topProdutos,
+    pecasVendidas: [...porProduto.entries()]
+      .map(([titulo, v]) => ({ titulo, pecas: v.pecas }))
+      .sort((a, b) => b.pecas - a.pecas),
+    pecasDeSeeding: [...seedingPorProduto.entries()]
+      .map(([titulo, pecas]) => ({ titulo, pecas }))
+      .sort((a, b) => b.pecas - a.pecas),
+    freteCobrado,
+    porGateway: [...porGateway.entries()]
+      .map(([gateway, valor]) => ({ gateway, valor }))
+      .sort((a, b) => b.valor - a.valor),
   };
 }
 

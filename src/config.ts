@@ -78,6 +78,23 @@ const schema = z.object({
    * histórico. E vale só para o Meta — no Google o valor da API já é o pago.
    */
   META_TAX_FACTOR: z.coerce.number().min(1).default(1.138304),
+
+  /*
+   * Custos que a Shopify não informa e por isso entram como parâmetro.
+   *
+   * A taxa do meio de pagamento não vem na API: `transactions.fees` só é
+   * preenchido para Shopify Payments, e a L&F usa PagBank e Mercado Pago —
+   * conferido em 16/09/2026, todos os pedidos voltam com `fees: []`. O mesmo
+   * vale para o custo real do frete, que está na fatura dos Correios e não no
+   * pedido.
+   *
+   * Ficam em zero por padrão de propósito: margem com taxa inventada é pior
+   * que margem incompleta, e o boletim avisa quando o parâmetro está zerado.
+   */
+  TAXA_CARTAO_PCT: z.coerce.number().min(0).max(30).default(0),
+  TAXA_PIX_PCT: z.coerce.number().min(0).max(30).default(0),
+  TAXA_BOLETO_PCT: z.coerce.number().min(0).max(30).default(0),
+  CUSTO_FRETE_POR_PEDIDO: z.coerce.number().min(0).default(0),
   WABA_ID: opcional(z.string()),
   /**
    * Token separado para o WhatsApp.

@@ -2,6 +2,7 @@ import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.
 import { reposicao, type Cobertura } from "../data/cobertura.js";
 import type { Patrimonio } from "../data/patrimonio.js";
 import type { MediaDaHora } from "../data/shopify.js";
+import type { Margem } from "../data/margem.js";
 import type { Conciliacao } from "../data/conciliacao.js";
 import type { MidiaMeta, FluxoTemplate } from "../data/meta.js";
 import type { Producao } from "../data/producao.js";
@@ -97,6 +98,7 @@ export interface DadosResumo {
   clientes?: NovosVsRecorrentes | null;
   cobertura?: Cobertura[] | null;
   media7dPorHora?: MediaDaHora[];
+  margem?: Margem | null;
   patrimonio?: Patrimonio | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
@@ -222,6 +224,30 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     b.push(cat.join("\n"));
+  }
+
+  // --- Margem ---
+  // Vem logo depois do faturamento porque é a pergunta que o faturamento
+  // levanta: entrou R$ 78 mil, sobrou quanto?
+  if (d.margem) {
+    const m = d.margem;
+    const pct2 = (v: number) => (m.receita > 0 ? pct(v / m.receita) : "—");
+    const mg = ["", "💰 MARGEM DO DIA"];
+    mg.push(`Custo das peças: ${dinheiro(m.cmv)} (${pct2(m.cmv)} da receita)`);
+    mg.push(`Margem bruta: ${dinheiro(m.margemBruta)} · ${pct2(m.margemBruta)}`);
+    mg.push(
+      `Menos mídia ${dinheiro(m.midia)}` +
+        (m.taxaDePagamento > 0 ? `, taxa ${dinheiro(m.taxaDePagamento)}` : "") +
+        (m.custoDeFrete > 0 ? `, frete ${dinheiro(m.custoDeFrete)}` : "") +
+        (m.custoDoSeeding > 0 ? `, seeding ${dinheiro(m.custoDoSeeding)}` : ""),
+    );
+    mg.push(
+      `Margem de contribuição: ${dinheiro(m.margemDeContribuicao)} · ${pct2(m.margemDeContribuicao)}`,
+    );
+    if (m.parametrosFaltando.length) {
+      mg.push(`⚠️ falta configurar: ${m.parametrosFaltando.join(" e ")}`);
+    }
+    b.push(mg.join("\n"));
   }
 
   // --- Ritmo do dia ---

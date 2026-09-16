@@ -9,6 +9,7 @@ import { conferirEstorno, type Conciliacao } from '../data/conciliacao.js';
 import { novosVsRecorrentes, type NovosVsRecorrentes } from '../data/shopify.js';
 import { coberturaDosCampeoes, type Cobertura } from '../data/cobertura.js';
 import { patrimonioDoDia, type Patrimonio } from '../data/patrimonio.js';
+import { margemDoDia, type Margem } from '../data/margem.js';
 
 /**
  * O material do boletim completo.
@@ -56,6 +57,7 @@ export interface DadosRelatorio {
   patrimonio: Patrimonio | null;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
   media7dPorHora: MediaDaHora[];
+  margem: Margem;
   leitura?: string;
 }
 
@@ -181,5 +183,6 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     cobertura,
     patrimonio,
     media7dPorHora,
+    margem: margemDoDia(vendas, (midia?.valorPago ?? 0) + (google?.valorPago ?? 0)),
   };
 }

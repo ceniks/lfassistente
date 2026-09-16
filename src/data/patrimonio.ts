@@ -247,6 +247,60 @@ async function emLotes<T, R>(itens: T[], tamanho: number, f: (x: T) => Promise<R
   return saida;
 }
 
+
+/**
+ * Custo por peça de cada produto da loja, a partir da tabela exportada.
+ *
+ * Devolve uma função de consulta em vez do mapa porque o casamento de nome não
+ * é uma busca direta: "Casaco Roma" está no Corte Pro como "Blazer casaco roma
+ * (Casaco)", e resolver isso a cada consulta custaria caro. O índice é montado
+ * uma vez.
+ *
+ * Vale o corte mais recente de cada produto: custo de janeiro não descreve
+ * peça cortada em setembro.
+ */
+export function tabelaDeCusto(): (titulo: string) => number | undefined {
+  const custoPorPeca = new Map<string, number>();
+  const corteDoCusto = new Map<string, LinhaDeCorte>();
+
+  for (const linha of CUSTO_POR_CORTE) {
+    if (!linha.custoPorPeca) continue;
+    const chave = chaveDeProduto(linha.produto);
+    const atual = corteDoCusto.get(chave);
+    if (atual && atual.inicio >= linha.data) continue;
+
+    corteDoCusto.set(chave, {
+      codigo: linha.corte,
+      produto: linha.produto,
+      // A exportação não traz a categoria; o nome carrega ela na frente.
+      categoria: '',
+      pecas: 0,
+      inicio: linha.data,
+    });
+    custoPorPeca.set(chave, linha.custoPorPeca);
+  }
+
+  const formasPorChave = new Map<string, Forma[]>();
+  for (const [chave, corte] of corteDoCusto) formasPorChave.set(chave, formasDoCorte(corte));
+
+  return (titulo: string) => {
+    const chave = chaveDeProduto(titulo);
+    const exato = custoPorPeca.get(chave);
+    if (exato !== undefined) return exato;
+
+    const forma = formaDoProduto(titulo);
+    if (!forma) return undefined;
+
+    const parecidas = [...formasPorChave.entries()]
+      .filter(([, formas]) => formas.some((f) => formasCasam(f, forma)))
+      .map(([k]) => k);
+
+    // Ambíguo é o mesmo que não achar: custo errado é pior que custo ausente.
+    if (parecidas.length !== 1) return undefined;
+    return custoPorPeca.get(parecidas[0]);
+  };
+}
+
 export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio | null> {
   const srv = servidor();
   const loja = await estoqueDaLoja();
@@ -308,56 +362,7 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
   const lidos = await emLotes(codigos, 6, async (cod) => [cod, await detalhe(srv, cod)] as const);
   for (const [cod, d] of lidos) if (d) detalhes.set(cod, d);
 
-  /*
-   * Custo por peça, do corte mais recente de cada produto, tirado da tabela
-   * exportada do Corte Pro.
-   *
-   * A API não serve para isto: em parte dos cortes o `Custo total` dela é
-   * cerca de metade do que o painel mostra (Camisa Layla, R$ 21,83 contra
-   * R$ 47,58). Ver o comentário em `custo-por-corte.ts`.
-   */
-  const custoPorPeca = new Map<string, number>();
-  const corteDoCusto = new Map<string, LinhaDeCorte>();
-
-  for (const linha of CUSTO_POR_CORTE) {
-    if (!linha.custoPorPeca) continue;
-    const chave = chaveDeProduto(linha.produto);
-    const atual = corteDoCusto.get(chave);
-    if (atual && atual.inicio >= linha.data) continue;
-
-    corteDoCusto.set(chave, {
-      codigo: linha.corte,
-      produto: linha.produto,
-      // A exportação não traz a categoria; o nome carrega ela na frente.
-      categoria: '',
-      pecas: 0,
-      inicio: linha.data,
-    });
-    custoPorPeca.set(chave, linha.custoPorPeca);
-  }
-
-  // Índice de formas, para não recalcular a cada produto da loja.
-  const formasPorChave = new Map<string, Forma[]>();
-  for (const [chave, corte] of corteDoCusto) {
-    formasPorChave.set(chave, formasDoCorte(corte));
-  }
-
-  const buscarCusto = (titulo: string): number | undefined => {
-    const chave = chaveDeProduto(titulo);
-    const exato = custoPorPeca.get(chave);
-    if (exato !== undefined) return exato;
-
-    const forma = formaDoProduto(titulo);
-    if (!forma) return undefined;
-
-    const parecidas = [...formasPorChave.entries()]
-      .filter(([, formas]) => formas.some((f) => formasCasam(f, forma)))
-      .map(([k]) => k);
-
-    // Ambíguo é o mesmo que não achar: custo errado é pior que custo ausente.
-    if (parecidas.length !== 1) return undefined;
-    return custoPorPeca.get(parecidas[0]);
-  };
+  const buscarCusto = tabelaDeCusto();
 
   const MARKUP_ABSURDO = 6;
 

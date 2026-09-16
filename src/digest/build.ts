@@ -7,6 +7,7 @@ import { mediaPorHora,
 } from '../data/shopify.js';
 import { coberturaDosCampeoes } from '../data/cobertura.js';
 import { patrimonioDoDia } from '../data/patrimonio.js';
+import { margemDoDia } from '../data/margem.js';
 import { conferirEstorno } from '../data/conciliacao.js';
 import { midiaDoDia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds } from '../data/google.js';
@@ -165,6 +166,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     cobertura,
     patrimonio,
     media7dPorHora,
+    margem: margemDoDia(vendas, (midia?.valorPago ?? 0) + (google?.valorPago ?? 0)),
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.
