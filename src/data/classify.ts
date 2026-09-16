@@ -109,7 +109,10 @@ export function isInfluencer(pedido: PedidoClassificavel): boolean {
  * ticket médio para baixo.
  */
 export function isReenvio(pedido: PedidoClassificavel): boolean {
-  return pedido.discountCodes.some((c) => norm(c).startsWith('envio referente'));
+  if (pedido.discountCodes.some((c) => norm(c).startsWith('envio referente'))) return true;
+  // Rede secundária: a anotação é texto livre e uma letra trocada faria o
+  // pedido voltar a contar como venda. Uma tag `reenvio` resolve de vez.
+  return pedido.tags.some((t) => norm(t) === 'reenvio');
 }
 
 /**

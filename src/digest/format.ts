@@ -95,6 +95,7 @@ export interface DadosResumo {
   estornos?: Conciliacao | null;
   clientes?: NovosVsRecorrentes | null;
   cobertura?: Cobertura[] | null;
+  media7dPorHora?: Array<{ hora: number; receita: number }>;
   patrimonio?: Patrimonio | null;
   /** Uma ou duas frases escritas pelo agente lendo os números acima. */
   leitura?: string;
@@ -220,6 +221,21 @@ export function montarResumo(d: DadosResumo): string {
       );
     }
     b.push(cat.join("\n"));
+  }
+
+  // --- Ritmo do dia ---
+  // Quatro marcos e a diferença contra o normal da mesma hora. Sem a
+  // comparação o número não orienta ação nenhuma.
+  if (d.vendas.porHora?.length && d.media7dPorHora?.length) {
+    const r = ["", "⏱️ RITMO DO DIA"];
+    for (const h of d.vendas.porHora) {
+      const m = d.media7dPorHora.find((x) => x.hora === h.hora)?.receita ?? 0;
+      r.push(
+        `${String(h.hora).padStart(2, "0")}h: ${dinheiro(h.receita)}` +
+          (m > 0 ? ` · ${variacao(h.receita, m)} vs média 7d` : ""),
+      );
+    }
+    b.push(r.join("\n"));
   }
 
   // --- Check-in do estoque ---

@@ -195,6 +195,22 @@ interface OrderNode extends PedidoClassificavel {
   };
 }
 
+/**
+ * As horas em que o dia é conferido.
+ *
+ * Nove da manhã pega a madrugada e o começo do expediente; meio-dia e 15h
+ * pegam o miolo; 19h fecha antes do pico da noite, que é quando ainda dá para
+ * reagir. O acumulado é sempre até a hora cheia — "às 12h" é tudo que foi pago
+ * até 11:59:59.
+ */
+export const HORAS_DE_CORTE = [9, 12, 15, 19] as const;
+
+export interface FaturamentoAteAHora {
+  hora: number;
+  receita: number;
+  pedidos: number;
+}
+
 /** Um cupom de venda no ranking do dia. */
 export interface CupomUsado {
   codigo: string;
@@ -242,6 +258,8 @@ export interface ResumoVendas {
     seedingInfluencer: number;
   };
   excluidos: { trocas: number; influencers: number; reenvios: number };
+  /** Faturamento acumulado até cada hora de corte. */
+  porHora: FaturamentoAteAHora[];
   cuponsMaisUsados: CupomUsado[];
   categorias: CategoriaVendida[];
   trocasDoDia: TrocasDoDia;
@@ -531,6 +549,38 @@ export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
  * pedidos entre 01 e 15/09, um só com transação. Sem transação e já pago, a
  * data do pagamento é a da criação.
  */
+/**
+ * O instante do pagamento, para o acompanhamento hora a hora.
+ *
+ * Mesma regra de `diaDoPagamento`: a captura bem-sucedida, ou a criação quando
+ * o pedido já nasceu pago e sem transação.
+ */
+function instanteDoPagamento(pedido: OrderNode): Date | null {
+  for (const t of pedido.transactions) {
+    if (t.status !== 'SUCCESS') continue;
+    if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') continue;
+    if (!t.processedAt) continue;
+    return new Date(t.processedAt);
+  }
+
+  const semCobranca = pedido.transactions.every((t) => t.status !== 'SUCCESS');
+  const jaPago = (pedido.displayFinancialStatus ?? '').toUpperCase() === 'PAID';
+  if (semCobranca && jaPago && num(pedido.totalPriceSet) === 0) return new Date(pedido.createdAt);
+
+  return null;
+}
+
+/** A hora do dia em São Paulo, 0 a 23. */
+function horaEmSaoPaulo(d: Date): number {
+  return Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      hour12: false,
+    }).format(d),
+  );
+}
+
 function diaDoPagamento(pedido: OrderNode): string | null {
   for (const t of pedido.transactions) {
     if (t.status !== 'SUCCESS') continue;
@@ -676,6 +726,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   const porProduto = new Map<string, { pecas: number; receita: number }>();
   const porCategoria = new Map<string, { pecas: number; receita: number }>();
   const porCupom = new Map<string, { pedidos: number; valor: number }>();
+  const porHora = HORAS_DE_CORTE.map((hora) => ({ hora, receita: 0, pedidos: 0 }));
 
   const troca = {
     total: 0,
@@ -729,6 +780,19 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     contagem++;
     const total = num(p.totalPriceSet);
     receita += total;
+
+    // Acumulado por hora de corte. O pedido entra em toda hora posterior ao
+    // pagamento, então cada linha é o total do dia até ali.
+    const pago = instanteDoPagamento(p);
+    if (pago) {
+      const h = horaEmSaoPaulo(pago);
+      for (const corte of porHora) {
+        if (h < corte.hora) {
+          corte.receita += total;
+          corte.pedidos++;
+        }
+      }
+    }
 
     const q = quebraDeDesconto(p);
     descontoCupom += q.cupom;
@@ -806,6 +870,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       seedingInfluencer: seeding,
     },
     excluidos: { trocas, influencers, reenvios },
+    porHora,
     cuponsMaisUsados,
     categorias,
     trocasDoDia: troca,

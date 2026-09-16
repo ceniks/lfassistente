@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import {
+import { HORAS_DE_CORTE,
   novosVsRecorrentes,
   periodoDeVendas,
   trafegoDoDia,
@@ -107,6 +107,16 @@ export async function construirResumo(dia = ontem()): Promise<string> {
   const vendasPorData = periodo.porDia;
   const vendas = vendasPorData.get(dia)!;
 
+  const media7dPorHora = HORAS_DE_CORTE.map((hora) => {
+    const valores = diasAntes(dia, 7)
+      .map((d) => vendasPorData.get(d)?.porHora.find((x) => x.hora === hora)?.receita)
+      .filter((v): v is number => typeof v === 'number');
+    return {
+      hora,
+      receita: valores.length ? valores.reduce((t, v) => t + v, 0) / valores.length : 0,
+    };
+  });
+
   const [
     trafego,
     midia,
@@ -161,6 +171,7 @@ export async function construirResumo(dia = ontem()): Promise<string> {
     clientes,
     cobertura,
     patrimonio,
+    media7dPorHora,
   };
 
   // A leitura é a única parte que precisa do modelo. Os números já estão prontos.

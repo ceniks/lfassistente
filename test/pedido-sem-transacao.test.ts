@@ -88,3 +88,22 @@ describe('classificação de seeding e reenvio', () => {
     expect(categoria(p({ tags: ['Mayara'], discountCodes: [] }))).toBe('venda');
   });
 });
+
+describe('reenvio pela tag', () => {
+  const p = (extra: Record<string, unknown>) =>
+    ({ name: '#139319', app: { name: 'Draft Orders' }, discountCodes: [], tags: [], ...extra }) as never;
+
+  it('pega o #139319 pela anotação no cupom', () => {
+    expect(
+      categoria(
+        p({ discountCodes: ['Envio referente ao numero de pedido 136992/ ao remetente'] }),
+      ),
+    ).toBe('reenvio');
+  });
+
+  it('pega pela tag quando a anotação vier diferente', () => {
+    expect(categoria(p({ tags: ['reenvio'], discountCodes: ['reenvio peça 136992'] }))).toBe(
+      'reenvio',
+    );
+  });
+});

@@ -535,6 +535,67 @@ function secaoEstoque(doc: Doc, d: DadosRelatorio) {
   );
 }
 
+/**
+ * O dia hora a hora, contra o ritmo normal.
+ *
+ * Um acumulado sozinho não diz nada — "R$ 18 mil ao meio-dia" é bom ou ruim
+ * conforme o que costuma haver ao meio-dia. Por isso cada corte vem ao lado da
+ * média dos sete dias anteriores na MESMA hora, e o que interessa é a
+ * diferença: se às 12h já estamos 20% abaixo, ainda dá tarde para reagir; se
+ * descobrir isso só no boletim da manhã seguinte, não dá mais.
+ */
+function secaoRitmo(doc: Doc, d: DadosRelatorio) {
+  const horas = d.vendas.porHora;
+  if (!horas?.length) return;
+
+  titulo(doc, 'Ritmo do dia');
+
+  const total = d.vendas.receita;
+  const mediaDe = (h: number) => d.media7dPorHora.find((x) => x.hora === h)?.receita ?? 0;
+
+  tabela(
+    doc,
+    ['Até as', 'Faturado', '% do dia', 'Média 7d na hora', 'Diferença'],
+    horas.map((h) => {
+      const m = mediaDe(h.hora);
+      return [
+        `${String(h.hora).padStart(2, '0')}h`,
+        dinheiro(h.receita),
+        total > 0 ? pct(h.receita / total) : '—',
+        m > 0 ? dinheiro(m) : '—',
+        m > 0 ? variacao(h.receita, m) : '—',
+      ];
+    }),
+    [LARGURA - 330, 85, 65, 105, 75],
+    ['left', 'right', 'right', 'right', 'right'],
+  );
+
+  const meioDia = horas.find((h) => h.hora === 12);
+  const m12 = mediaDe(12);
+  if (meioDia && m12 > 0) {
+    const dif = meioDia.receita / m12 - 1;
+    linha(
+      doc,
+      'Leitura do meio-dia',
+      variacao(meioDia.receita, m12),
+      dif < -0.15
+        ? 'abaixo do ritmo — é a hora de mexer em mídia ou oferta'
+        : dif > 0.15
+          ? 'acima do ritmo'
+          : 'dentro do normal',
+      dif < -0.15 ? RUIM : dif > 0.15 ? BOM : TINTA,
+    );
+  }
+
+  paragrafo(
+    doc,
+    'Acumulado até a hora cheia, pela data do pagamento: "até as 12h" é tudo que foi pago até ' +
+      '11:59. Mesma régua do faturamento do dia — só pedido pago, sem troca, sem seeding, sem ' +
+      'reenvio.',
+    TINTA3,
+  );
+}
+
 function secaoDesconto(doc: Doc, d: DadosRelatorio) {
   const v = d.vendas;
   const bruto = v.receita + v.desconto.total;
@@ -1064,6 +1125,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoClientes(doc, d);
     secaoDesconto(doc, d);
     secaoProdutos(doc, d);
+    secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
     secaoEstoque(doc, d);
     secaoCategorias(doc, d);

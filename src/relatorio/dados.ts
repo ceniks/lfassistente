@@ -1,4 +1,4 @@
-import { periodoDeVendas, trafegoDoDia, type ResumoVendas, type Trafego } from '../data/shopify.js';
+import { HORAS_DE_CORTE, periodoDeVendas, trafegoDoDia, type ResumoVendas, type Trafego } from '../data/shopify.js';
 import { midiaDoDia, desempenhoPorNivel, type MidiaMeta, type LinhaMidia } from '../data/meta.js';
 import { midiaGoogleDoDia, temGoogleAds, type MidiaGoogle } from '../data/google.js';
 import { metaDoDia } from '../data/metas.js';
@@ -54,6 +54,8 @@ export interface DadosRelatorio {
   clientes: NovosVsRecorrentes | null;
   cobertura: Cobertura[] | null;
   patrimonio: Patrimonio | null;
+  /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
+  media7dPorHora: Array<{ hora: number; receita: number }>;
   leitura?: string;
 }
 
@@ -98,6 +100,18 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     });
 
   const seteDias = diasAntes(dia, 7);
+
+  // O acumulado por hora só diz alguma coisa contra o ritmo normal: "R$ 18 mil
+  // ao meio-dia" é bom ou ruim dependendo do que costuma haver ao meio-dia.
+  const media7dPorHora = HORAS_DE_CORTE.map((hora) => {
+    const valores = seteDias
+      .map((d) => vendasPorData.get(d)?.porHora.find((x) => x.hora === hora)?.receita)
+      .filter((v): v is number => typeof v === 'number');
+    return {
+      hora,
+      receita: valores.length ? valores.reduce((t, v) => t + v, 0) / valores.length : 0,
+    };
+  });
   const resumos = seteDias
     .map((d) => vendasPorData.get(d))
     .filter((r): r is ResumoVendas => Boolean(r));
@@ -173,5 +187,6 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     clientes,
     cobertura,
     patrimonio,
+    media7dPorHora,
   };
 }
