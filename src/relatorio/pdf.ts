@@ -943,7 +943,7 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
       garantirEspaco(doc, 120);
       tabela(
         doc,
-        ['Régua de WhatsApp', 'Enviadas', 'Falhas', 'Conversões', 'Receita'],
+        ['Régua de WhatsApp', 'Enviadas', 'Falhas', 'Compras', 'Receita'],
         a.reguas.map((r) => [
           r.nome,
           numero(r.enviadas),
@@ -951,7 +951,7 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
           numero(r.conversoes),
           r.receita > 0 ? dinheiro(r.receita) : '—',
         ]),
-        [LARGURA - 290, 70, 90, 65, 65],
+        [LARGURA - 300, 70, 95, 65, 70],
         ['left', 'right', 'right', 'right', 'right'],
       );
 
