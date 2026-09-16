@@ -1091,6 +1091,9 @@ const REFUNDS_QUERY = `
     orders(first: 100, query: $q, after: $cursor, sortKey: UPDATED_AT) {
       nodes {
         name
+        tags
+        discountCodes
+        app { name }
         refunds(first: 20) {
           createdAt
           transactions(first: 10) {
@@ -1161,7 +1164,7 @@ export async function estornosEntre(
     `updated_at:>='${inicio.toISOString().slice(0, 10)}T00:00:00-03:00'`,
   ].join(' ');
 
-  interface Node {
+  interface Node extends PedidoClassificavel {
     name: string;
     refunds: Array<{
       createdAt: string;
@@ -1186,6 +1189,16 @@ export async function estornosEntre(
   for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
     const d: Pagina = await admin<Pagina>(REFUNDS_QUERY, { q, cursor });
     for (const pedido of d.orders.nodes) {
+      // Seeding zerado não é devolução de cliente.
+      //
+      // O #139120 saiu como seeding em 15/09, cobrou R$ 699,80 por engano e foi
+      // estornado em 16/09. Como o pedido nunca entrou no faturamento, contar o
+      // estorno dele abriria uma divergência que não existe: do lado do
+      // TroqueCommerce não há reversa nenhuma para casar. O mesmo vale para
+      // reenvio.
+      const cat = categoria(pedido);
+      if (cat === 'influencer' || cat === 'reenvio') continue;
+
       for (const r of pedido.refunds ?? []) {
         const diaDoRefund = emSaoPaulo(r.createdAt);
         if (diaDoRefund < de || diaDoRefund > ate) continue;
