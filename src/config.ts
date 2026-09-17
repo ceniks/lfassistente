@@ -108,6 +108,18 @@ const schema = z.object({
   /** Comissão da Shopify por usar gateway externo, sobre toda venda. */
   TAXA_PLATAFORMA_PCT: z.coerce.number().min(0).max(30).default(0.6),
   CUSTO_FRETE_POR_PEDIDO: z.coerce.number().min(0).default(0),
+  /**
+   * Token do PagBank.
+   *
+   * Não entra na margem — a taxa já é conhecida (6,10% / 0,99%). Existe para
+   * medir caixa: quanto do faturamento já pingou na conta e quanto está em
+   * recebível. Cobre só o PagBank; o Mercado Pago responde pela outra fatia e
+   * precisaria de credencial própria, então qualquer número daqui é parcial e
+   * tem que ser rotulado como tal.
+   */
+  PAGBANK_TOKEN: opcional(z.string()),
+  /** Só para o token antigo (ws.pagseguro.uol.com.br), que exige e-mail junto. */
+  PAGBANK_EMAIL: opcional(z.string()),
   WABA_ID: opcional(z.string()),
   /**
    * Token separado para o WhatsApp.
