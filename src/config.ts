@@ -97,16 +97,25 @@ const schema = z.object({
    * que margem incompleta, e o boletim avisa quando o parâmetro está zerado.
    */
   /**
-   * Taxa de desconto do gateway no cartão.
+   * Taxa de desconto do cartão, usada só onde não dá para medir.
    *
-   * **6,10% é a taxa que a L&F paga**, informada pelo Luis em 17/09/2026 — é
-   * uma taxa única, não a tabela por parcela do PagBank (3,15% à vista até
-   * 8,50% em 10x). Por isso o parcelamento deixou de importar para a margem, e
-   * bem: a Shopify não informa em quantas parcelas a cliente pagou, nem em
-   * `paymentDetails`, nem em `metafields`, nem na linha do tempo do pedido.
+   * A taxa **não é única**: medida transação a transação no PagBank em
+   * 16/09/2026, ela foi de 3,12% à vista a 7,38% em 8x, com média de 5,93% no
+   * dia — e a média muda com o mix de parcelamento, então fixar um percentual
+   * erra sozinho de um dia para o outro. Onde há credencial (PagBank), a
+   * margem usa o `feeAmount` de cada transação e ignora este parâmetro. Ele
+   * sobra para o Mercado Pago e para qualquer gateway sem acesso.
+   *
+   * Os 6,10% que estavam aqui eram a linha do 6x da tabela do PagBank.
    */
-  TAXA_CARTAO_PCT: z.coerce.number().min(0).max(30).default(6.1),
-  /** Usada só se a taxa do cartão for zerada, para voltar à tabela por parcela. */
+  TAXA_CARTAO_PCT: z.coerce.number().min(0).max(30).default(0),
+  /**
+   * Parcelamento assumido quando não há como medir.
+   *
+   * Em 16/09/2026 a média ponderada pelo valor deu 5,6 parcelas — 8x sozinho
+   * foi 44% do volume no cartão. 6 é a aproximação conservadora, e só é usada
+   * onde não existe credencial para ler a taxa cobrada.
+   */
   PARCELAS_MEDIAS: z.coerce.number().int().min(1).max(10).default(6),
   TAXA_PIX_PCT: z.coerce.number().min(0).max(30).default(0.99),
   TAXA_BOLETO_PCT: z.coerce.number().min(0).max(30).default(0),

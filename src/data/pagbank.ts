@@ -120,3 +120,100 @@ export async function cobrancasPorReferencia(
   await Promise.all(Array.from({ length: EM_PARALELO }, trabalhar));
   return fora;
 }
+
+/* ------------------------------------------------------------------------ *
+ * API antiga (ws.pagseguro.uol.com.br/v3) — a que lista por data e informa
+ * quanto o PagBank realmente cobrou.
+ *
+ * Usa o MESMO token da API nova, ao contrário do que a documentação sugere.
+ * O que fazia parecer credencial diferente era o cabeçalho `Accept`: com
+ * `application/json` ou com o vendor type ela responde 406 seco, e com `*​/*`
+ * responde 200 em XML. Um cabeçalho, não uma credencial.
+ *
+ * O que ela acrescenta e a API nova não tem:
+ *  - listagem por intervalo de data, o que torna possível a conferência
+ *    inversa: cobrança no PagBank que nenhum pedido da Shopify aponta.
+ *  - `feeAmount` e `netAmount` — a taxa cobrada em cada transação, em reais.
+ *    Isso encerra a estimativa: a taxa não é única. Em 16/09 ela foi de 3,12%
+ *    à vista a 7,38% em 8x, e a média do dia deu 5,93%.
+ * ------------------------------------------------------------------------ */
+
+const LEGADO = "https://ws.pagseguro.uol.com.br/v3/transactions";
+/** A busca aceita até 100 por página. */
+const POR_PAGINA = 100;
+
+/** Status da API antiga. 3 = paga, 4 = disponível, 6 = devolvida, 7 = cancelada. */
+const CANCELADA = 7;
+const DEVOLVIDA = 6;
+
+export interface TransacaoPagBank {
+  /** Igual ao `payment_id` da Shopify e ao `reference_id` da API nova. */
+  referencia: string;
+  codigo: string;
+  data: string;
+  status: number;
+  bruto: number;
+  taxa: number;
+  liquido: number;
+  /** Cancelada ou devolvida: não é venda do dia e não entra em taxa. */
+  valeComoVenda: boolean;
+}
+
+const tag = (s: string, nome: string): string | null => {
+  const m = s.match(new RegExp(`<${nome}>([^<]*)</${nome}>`));
+  return m ? m[1] : null;
+};
+
+async function paginaLegado(dia: string, pagina: number): Promise<string> {
+  const { PAGBANK_TOKEN: token, PAGBANK_EMAIL: email } = config();
+  if (!token || !email)
+    throw new Error("PagBank: falta PAGBANK_TOKEN ou PAGBANK_EMAIL");
+
+  const q = new URLSearchParams({
+    email,
+    token,
+    // Sem fuso: a API antiga interpreta no horário de Brasília, que é o que queremos.
+    initialDate: `${dia}T00:00:00`,
+    finalDate: `${dia}T23:59:59`,
+    page: String(pagina),
+    maxPageResults: String(POR_PAGINA),
+  });
+
+  const r = await fetch(`${LEGADO}?${q}`, {
+    // `application/json` e o vendor type devolvem 406. Só `*​/*` passa.
+    headers: { Accept: "*/*" },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) throw new Error(`PagBank legado HTTP ${r.status}`);
+  return r.text();
+}
+
+/** Todas as transações do dia no PagBank, com a taxa que ele cobrou em cada uma. */
+export async function transacoesDoDia(
+  dia: string,
+): Promise<TransacaoPagBank[]> {
+  const primeira = await paginaLegado(dia, 1);
+  const paginas = Number(tag(primeira, "totalPages") ?? 1);
+
+  const xmls = [primeira];
+  for (let p = 2; p <= paginas; p++) xmls.push(await paginaLegado(dia, p));
+
+  const fora: TransacaoPagBank[] = [];
+  for (const xml of xmls) {
+    for (const pedaco of xml.split("<transaction>").slice(1)) {
+      const s = pedaco.split("</transaction>")[0];
+      const status = Number(tag(s, "status") ?? 0);
+      fora.push({
+        referencia: tag(s, "reference") ?? "",
+        codigo: tag(s, "code") ?? "",
+        data: tag(s, "date") ?? "",
+        status,
+        bruto: Number(tag(s, "grossAmount") ?? 0),
+        taxa: Number(tag(s, "feeAmount") ?? 0),
+        liquido: Number(tag(s, "netAmount") ?? 0),
+        valeComoVenda: status !== CANCELADA && status !== DEVOLVIDA,
+      });
+    }
+  }
+  return fora;
+}

@@ -10,9 +10,9 @@
  * custo real do frete (está na fatura dos Correios). Ficam em zero até serem
  * configuradas, e a margem sai marcada como incompleta em vez de sair errada.
  */
-import { config } from '../config.js';
-import { tabelaDeCusto } from './patrimonio.js';
-import type { ResumoVendas } from './shopify.js';
+import { config } from "../config.js";
+import { tabelaDeCusto } from "./patrimonio.js";
+import type { ResumoVendas } from "./shopify.js";
 
 export interface Margem {
   receita: number;
@@ -28,6 +28,10 @@ export interface Margem {
   margemBruta: number;
   midia: number;
   taxaDePagamento: number;
+  /** Parte da taxa que foi lida do gateway, em reais. O resto é estimativa. */
+  taxaMedida: number;
+  /** Receita coberta pela taxa medida — o quanto da conta deixou de ser chute. */
+  receitaComTaxaMedida: number;
   /** Em quantas parcelas o cartão foi calculado — é parâmetro, não medição. */
   parcelasUsadas: number;
   /** Comissão da Shopify sobre a venda. */
@@ -65,15 +69,26 @@ function taxaDoGateway(gateway: string): number {
   const c = config();
   const g = gateway.toLowerCase();
 
-  if (g.includes('pix')) return c.TAXA_PIX_PCT / 100;
-  if (g.includes('boleto')) return c.TAXA_BOLETO_PCT / 100;
-  if (g.includes('débito') || g.includes('debito')) return 0;
+  if (g.includes("pix")) return c.TAXA_PIX_PCT / 100;
+  if (g.includes("boleto")) return c.TAXA_BOLETO_PCT / 100;
+  if (g.includes("débito") || g.includes("debito")) return 0;
 
   if (c.TAXA_CARTAO_PCT > 0) return c.TAXA_CARTAO_PCT / 100;
   return (TAXA_POR_PARCELA[c.PARCELAS_MEDIAS] ?? TAXA_POR_PARCELA[1]) / 100;
 }
 
-export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
+/**
+ * @param taxaDoPagBank  taxa que o PagBank cobrou de verdade, somada transação
+ *   a transação, e quanto de receita ela cobre. Quando vem, substitui a
+ *   estimativa nessa fatia — e ela é grande: a alíquota não é única, vai de
+ *   3,12% à vista a 7,38% em 8x. Sem isso, qualquer percentual fixo erra
+ *   conforme o mix de parcelamento do dia muda.
+ */
+export function margemDoDia(
+  vendas: ResumoVendas,
+  midia: number,
+  taxaDoPagBank?: { taxa: number; receita: number } | null,
+): Margem {
   const c = config();
   const custoDe = tabelaDeCusto();
 
@@ -105,8 +120,10 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     pecasComCusto += p.pecas;
   }
 
-  const razaoDeCusto = receitaComCusto > 0 ? custoConhecido / receitaComCusto : 0;
-  const custoMedioPorPeca = pecasComCusto > 0 ? custoConhecido / pecasComCusto : 0;
+  const razaoDeCusto =
+    receitaComCusto > 0 ? custoConhecido / receitaComCusto : 0;
+  const custoMedioPorPeca =
+    pecasComCusto > 0 ? custoConhecido / pecasComCusto : 0;
   const custoEstimado = receitaSemCusto * razaoDeCusto;
 
   let custoDoSeeding = 0;
@@ -125,10 +142,21 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
 
   const cmv = custoConhecido + custoEstimado + custoDoSeeding;
 
-  const taxaDePagamento = vendas.porGateway.reduce(
-    (t, g) => t + g.valor * taxaDoGateway(g.gateway),
+  /*
+   * A taxa medida vale mais que a estimada, então o PagBank sai da conta por
+   * alíquota e entra pelo valor cobrado. O que sobra — Mercado Pago e qualquer
+   * gateway sem credencial — continua estimado, e o relatório diz quanto.
+   */
+  const medida = taxaDoPagBank ?? null;
+  const ehMedido = (g: string) =>
+    Boolean(medida) && /pagbank|pagseguro/i.test(g);
+
+  const taxaEstimada = vendas.porGateway.reduce(
+    (t, g) =>
+      ehMedido(g.gateway) ? t : t + g.valor * taxaDoGateway(g.gateway),
     0,
   );
+  const taxaDePagamento = taxaEstimada + (medida?.taxa ?? 0);
 
   const taxaDaPlataforma = vendas.receita * (c.TAXA_PLATAFORMA_PCT / 100);
   const custoDeFrete = c.CUSTO_FRETE_POR_PEDIDO * vendas.pedidos;
@@ -138,7 +166,7 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     margemBruta - midia - taxaDePagamento - taxaDaPlataforma - custoDeFrete;
 
   const parametrosFaltando: string[] = [];
-  if (!c.CUSTO_FRETE_POR_PEDIDO) parametrosFaltando.push('custo do frete');
+  if (!c.CUSTO_FRETE_POR_PEDIDO) parametrosFaltando.push("custo do frete");
 
   return {
     receita: vendas.receita,
@@ -150,6 +178,8 @@ export function margemDoDia(vendas: ResumoVendas, midia: number): Margem {
     margemBruta,
     midia,
     taxaDePagamento,
+    taxaMedida: medida?.taxa ?? 0,
+    receitaComTaxaMedida: medida?.receita ?? 0,
     parcelasUsadas: c.TAXA_CARTAO_PCT > 0 ? 0 : c.PARCELAS_MEDIAS,
     taxaDaPlataforma,
     custoDeFrete,

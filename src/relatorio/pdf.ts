@@ -720,10 +720,10 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     doc,
     "(-) Taxa de pagamento",
     dinheiro(m.taxaDePagamento),
-    `${daReceita(m.taxaDePagamento)} da receita · ` +
-      (m.parcelasUsadas
-        ? `cartão calculado em ${numero(m.parcelasUsadas)}x`
-        : `${numero(config().TAXA_CARTAO_PCT, 2)}% no cartão, ${numero(config().TAXA_PIX_PCT, 2)}% no Pix`),
+    m.taxaMedida > 0
+      ? `${daReceita(m.taxaDePagamento)} da receita · ${dinheiro(m.taxaMedida)} lidos do PagBank`
+      : `${daReceita(m.taxaDePagamento)} da receita · ` +
+          `${numero(config().TAXA_CARTAO_PCT, 2)}% no cartão, ${numero(config().TAXA_PIX_PCT, 2)}% no Pix`,
   );
   linha(
     doc,
@@ -759,8 +759,14 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
       (m.parametrosFaltando.length
         ? `Ainda falta configurar ${m.parametrosFaltando.join(" e ")}, então a margem acima está ` +
           "otimista nesses pontos — o número real é menor."
-        : "A taxa do gateway é a mesma para qualquer parcelamento, então o número acima não " +
-          "depende de estimativa. Cada pedido entra pela taxa do meio de pagamento que ele usou."),
+        : "") +
+      (m.taxaMedida > 0
+        ? ` A taxa de pagamento não é mais estimativa na maior parte: ${dinheiro(m.taxaMedida)} ` +
+          `sobre ${dinheiro(m.receitaComTaxaMedida)} vêm do que o PagBank cobrou em cada ` +
+          "transação, uma a uma. Ela varia com o parcelamento — foi de 3% à vista a mais de 7% " +
+          "em 8x — então nenhuma alíquota fixa daria esse número. O que sobra de estimativa é o " +
+          "Mercado Pago, que tem credencial própria."
+        : ""),
     TINTA3,
   );
 }
@@ -785,7 +791,7 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
     doc,
     "Conferidas no PagBank",
     numero(c.conferidas),
-    `${dinheiro(c.valorConferido)} em transações de cartão e Pix`,
+    `${dinheiro(c.valorConferido)} em transações de cartão`,
   );
   linha(
     doc,
@@ -793,7 +799,7 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
     numero(c.ok),
     divergem > 0
       ? `${numero(divergem)} divergente(s) abaixo`
-      : "valor e status iguais nos dois lados",
+      : "mesmo valor nos dois lados, uma a uma",
     divergem > 0 ? TINTA : BOM,
   );
 
@@ -816,21 +822,56 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
     );
   }
 
-  if (c.estornadoNoPagBank > 0) {
+  /*
+   * O sentido inverso. Só existe porque a API antiga lista por data: cobrança
+   * que o PagBank tem e nenhum pedido da Shopify aponta é dinheiro que entrou
+   * sem a loja registrar — o oposto exato da divergência de cima, e o que
+   * ninguém consegue ver conferindo só um lado.
+   */
+  if (c.orfas.length) {
     linha(
       doc,
-      "Já estornado no PagBank",
-      dinheiro(c.estornadoNoPagBank),
-      "sobre cobranças deste dia",
+      "Cobrança sem pedido na Shopify",
+      numero(c.orfas.length),
+      `${dinheiro(c.orfas.reduce((s, o) => s + o.bruto, 0))} — entrou no gateway e a loja não registrou`,
+      RUIM,
+    );
+    tabela(
+      doc,
+      ["Referência", "Quando", "Valor"],
+      c.orfas
+        .slice(0, 10)
+        .map((o) => [o.referencia, o.data.slice(11, 16), dinheiro(o.bruto)]),
+      [LARGURA - 220, 120, 100],
+      ["left", "left", "right"],
+    );
+  } else {
+    linha(
+      doc,
+      "Cobrança sem pedido na Shopify",
+      "nenhuma",
+      "todo dinheiro que entrou tem pedido",
+      BOM,
     );
   }
 
-  /*
-   * "manual" não é um gateway: é pedido de rascunho marcado como pago na mão,
-   * pela atendente. Chamar isso de "outro gateway" esconderia o que importa —
-   * esse dinheiro não tem cobrança em lugar nenhum para conferir, nem aqui nem
-   * no Mercado Pago. Merece linha própria e aviso, não nota de rodapé.
-   */
+  if (c.canceladas.quantidade > 0) {
+    linha(
+      doc,
+      "Canceladas no PagBank",
+      numero(c.canceladas.quantidade),
+      `${dinheiro(c.canceladas.valor)} — tentativa que não virou venda, sem taxa`,
+      TINTA3,
+    );
+  }
+
+  linha(
+    doc,
+    "Taxa cobrada de verdade",
+    dinheiro(c.taxaReal),
+    `${numero(c.taxaRealPct * 100, 2)}% do que passou no cartão`,
+  );
+
   for (const g of c.foraDoAlcance) {
     const naMao = g.gateway === "manual";
     linha(
@@ -846,15 +887,13 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
 
   paragrafo(
     doc,
-    "A ligação entre os dois lados é o identificador do pagamento: a Shopify guarda um " +
-      "identificador em cada transação e o PagBank grava esse mesmo valor como referência da " +
-      "cobrança. Por isso a conferência é exata, uma a uma, e não por soma de totais. " +
-      "Ponto cego que fica: a API do PagBank não lista por data, então só enxergamos cobranças " +
-      "que algum pedido da Shopify aponta — cobrança no gateway sem pedido correspondente não " +
-      "aparece aqui. E taxa e valor líquido não vêm nesta API, então isto confere existência e " +
-      "valor, não a taxa cobrada. O que aparece como pago à mão é pedido de rascunho que a " +
-      "atendente marcou como pago: não existe cobrança para conferir em gateway nenhum, então " +
-      "essa fatia do faturamento depende inteiramente de o registro interno estar certo.",
+    "A ligação entre os dois lados é o identificador do pagamento, que a Shopify guarda em cada " +
+      "transação e o PagBank grava como referência da cobrança. Por isso a conferência é uma a " +
+      "uma e vale nos dois sentidos — e a taxa acima não é alíquota aplicada, é a soma do que o " +
+      "PagBank cobrou em cada transação. O que aparece como pago à mão é pedido de rascunho que " +
+      "a atendente marcou como pago: não existe cobrança para conferir em gateway nenhum, então " +
+      "essa fatia depende inteiramente de o registro interno estar certo. O Mercado Pago tem " +
+      "credencial própria e fica de fora — a diferença não é divergência.",
     TINTA3,
   );
 
@@ -862,21 +901,23 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
     const total = c.parcelas.reduce((s, x) => s + x.valor, 0);
     tabela(
       doc,
-      ["Parcelas", "Pedidos", "Valor", "% do cartão"],
+      ["Parcelas", "Pedidos", "Valor", "% do cartão", "Taxa real"],
       c.parcelas.map((x) => [
         `${x.parcelas}x`,
         numero(x.pedidos),
         dinheiro(x.valor),
         total > 0 ? pct(x.valor / total) : "-",
+        x.valor > 0 ? `${numero((x.taxa / x.valor) * 100, 2)}%` : "-",
       ]),
-      [80, 90, 120, LARGURA - 290],
-      ["left", "right", "right", "right"],
+      [70, 70, 110, 100, LARGURA - 350],
+      ["left", "right", "right", "right", "right"],
     );
     paragrafo(
       doc,
-      "O parcelamento não existe em lugar nenhum do pedido da Shopify — vem do PagBank. Ele não " +
-        "muda a margem, porque a taxa do gateway é a mesma para qualquer número de parcelas, mas " +
-        "muda o caixa: a venda em 8x entra ao longo de oito meses.",
+      "O parcelamento não existe em lugar nenhum do pedido da Shopify — vem do PagBank. E ele " +
+        "muda as duas coisas: a taxa sobe junto com o número de parcelas, e o dinheiro da venda " +
+        "em 8x entra ao longo de oito meses. Por isso a margem usa a taxa cobrada em cada " +
+        "transação, e não uma taxa média que o mix do dia tornaria errada amanhã.",
       TINTA3,
     );
   }

@@ -229,6 +229,9 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     margem: margemDoDia(
       vendas,
       (midia?.valorPago ?? 0) + (google?.valorPago ?? 0),
+      pagbank
+        ? { taxa: pagbank.taxaReal, receita: pagbank.valorConferido }
+        : null,
     ),
   };
 }
