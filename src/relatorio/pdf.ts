@@ -46,7 +46,33 @@ export type Doc = InstanceType<typeof PDFDocument>;
  * Primitivas de desenho
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Numeração
+ *
+ * Cada bloco recebe um número e cada campo dentro dele o seu — 3.2 é o segundo
+ * campo do terceiro bloco. Serve para conversar sobre o relatório sem precisar
+ * descrever a linha ("tira o 5.4") e para remontar a ordem depois sem
+ * ambiguidade. O contador do bloco anda em `titulo`, e o do campo zera junto.
+ * ------------------------------------------------------------------ */
+
+let blocoAtual = 0;
+let campoAtual = 0;
+
+/** Chamado uma vez por relatório: sem isso a segunda página começaria em 9. */
+export function zerarNumeracao() {
+  blocoAtual = 0;
+  campoAtual = 0;
+}
+
+/** O próximo número de campo, no formato bloco.campo. */
+function proximoCampo(): string {
+  campoAtual += 1;
+  return `${blocoAtual}.${campoAtual}`;
+}
+
 export function titulo(doc: Doc, texto: string) {
+  blocoAtual += 1;
+  campoAtual = 0;
   garantirEspaco(doc, 60);
   doc.moveDown(0.9);
   const y = doc.y;
@@ -54,7 +80,7 @@ export function titulo(doc: Doc, texto: string) {
     .font("Helvetica-Bold")
     .fontSize(11)
     .fillColor(TINTA)
-    .text(texto.toUpperCase(), MARGEM, y, {
+    .text(`${blocoAtual}. ${texto.toUpperCase()}`, MARGEM, y, {
       characterSpacing: 1.1,
     });
   doc
@@ -93,11 +119,19 @@ export function linha(
 ) {
   garantirEspaco(doc, 16);
   const y = doc.y;
+  const n = proximoCampo();
+  // O número fica numa coluna estreita à esquerda, em cinza: presente para
+  // quem procura, invisível para quem só lê o relatório.
+  doc
+    .font("Helvetica")
+    .fontSize(7.5)
+    .fillColor(TINTA3)
+    .text(n, MARGEM, y + 1, { width: 26 });
   doc
     .font("Helvetica")
     .fontSize(9)
     .fillColor(TINTA2)
-    .text(rotulo, MARGEM, y, { width: 200 });
+    .text(rotulo, MARGEM + 28, y, { width: 172 });
   doc
     .font("Helvetica-Bold")
     .fontSize(9)
@@ -168,7 +202,10 @@ export function tabela(
   let y = doc.y;
   doc.font("Helvetica-Bold").fontSize(7.5).fillColor(TINTA3);
   let x = MARGEM;
-  cabecalho.forEach((c, i) => {
+  // A tabela inteira é um campo: o número entra no primeiro título de coluna,
+  // que é onde o olho já vai procurar o começo dela.
+  const numerado = [`${proximoCampo()} ${cabecalho[0]}`, ...cabecalho.slice(1)];
+  numerado.forEach((c, i) => {
     doc.text(c.toUpperCase(), x, y, {
       width: util(i),
       align: alinhamentos[i] ?? "left",
@@ -1223,7 +1260,17 @@ function secaoDesconto(doc: Doc, d: DadosRelatorio) {
       ["left", "right", "right"],
     );
   }
+}
 
+/**
+ * As trocas pagas no dia.
+ *
+ * Bloco próprio, e não mais um rabicho do Desconto: a ordem dos blocos é
+ * escolha de leitura, e enquanto ele morava dentro de outra função não dava
+ * para movê-lo sem mover o Desconto junto.
+ */
+function secaoTrocasPagas(doc: Doc, d: DadosRelatorio) {
+  const v = d.vendas;
   const tro = v.trocasDoDia;
   titulo(doc, "Trocas pagas no dia");
   linha(
@@ -1888,23 +1935,35 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     doc.on("end", () => resolve(Buffer.concat(pedacos)));
     doc.on("error", reject);
 
+    zerarNumeracao();
     cabecalho(doc, d);
     indicadores(doc, d);
     grafico(doc, d);
+    /*
+     * A ordem dos oito primeiros blocos é a que o Luis pediu: vendas, desconto,
+     * tráfego, mídia, margem, produtos, estoque dos campeões, categorias. O
+     * resto segue na ordem em que já estava.
+     *
+     * Duas exceções conscientes: `secaoClientes` não tem título próprio, é a
+     * continuação de Vendas, e por isso anda colada nela; e `secaoCampanhas`
+     * fica junto de Mídia, porque sozinha ela é uma tabela de campanhas sem
+     * dizer de quanto gasto se está falando.
+     */
     secaoVendas(doc, d);
     secaoClientes(doc, d);
     secaoDesconto(doc, d);
-    secaoProdutos(doc, d);
+    secaoTrafego(doc, d);
+    secaoMidia(doc, d);
+    secaoCampanhas(doc, d);
     secaoMargem(doc, d);
+    secaoProdutos(doc, d);
+    secaoEstoque(doc, d);
+    secaoCategorias(doc, d);
+    secaoTrocasPagas(doc, d);
     secaoPagamento(doc, d);
     secaoPagosAMao(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
-    secaoEstoque(doc, d);
-    secaoCategorias(doc, d);
-    secaoTrafego(doc, d);
-    secaoMidia(doc, d);
-    secaoCampanhas(doc, d);
     secaoTrocas(doc, d);
     secaoOperacao(doc, d);
     secaoLeitura(doc, d);
