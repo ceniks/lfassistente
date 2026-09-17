@@ -1,5 +1,5 @@
-import { config, exigir } from '../config.js';
-import { categoria, norm, type PedidoClassificavel } from './classify.js';
+import { config, exigir } from "../config.js";
+import { categoria, norm, type PedidoClassificavel } from "./classify.js";
 
 /* ------------------------------------------------------------------ *
  * Cliente
@@ -29,25 +29,28 @@ async function accessToken(): Promise<string> {
 
   if (tokenCache && Date.now() < tokenCache.expiraEm) return tokenCache.valor;
 
-  const loja = exigir('SHOPIFY_SHOP');
+  const loja = exigir("SHOPIFY_SHOP");
   const res = await fetch(`https://${loja}/admin/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: exigir('SHOPIFY_CLIENT_ID'),
-      client_secret: exigir('SHOPIFY_CLIENT_SECRET'),
+      grant_type: "client_credentials",
+      client_id: exigir("SHOPIFY_CLIENT_ID"),
+      client_secret: exigir("SHOPIFY_CLIENT_SECRET"),
     }),
   });
 
   if (!res.ok) {
     throw new Error(
       `Shopify recusou as credenciais (${res.status}): ${await res.text()}\n` +
-        'Confira se o app está instalado na loja e se app e loja estão na mesma organização do Dev Dashboard.',
+        "Confira se o app está instalado na loja e se app e loja estão na mesma organização do Dev Dashboard.",
     );
   }
 
-  const json = (await res.json()) as { access_token: string; expires_in: number };
+  const json = (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+  };
   const margem = 300;
   tokenCache = {
     valor: json.access_token,
@@ -66,7 +69,11 @@ interface RespostaGraphQL<T> {
     cost?: {
       requestedQueryCost?: number;
       actualQueryCost?: number;
-      throttleStatus?: { currentlyAvailable: number; restoreRate: number; maximumAvailable: number };
+      throttleStatus?: {
+        currentlyAvailable: number;
+        restoreRate: number;
+        maximumAvailable: number;
+      };
     };
   };
 }
@@ -79,7 +86,8 @@ interface RespostaGraphQL<T> {
  * conhecido permite pausar ANTES de levar o `THROTTLED`, em vez de errar e
  * tentar de novo.
  */
-let saldo: { pontos: number; restaurePorSegundo: number; em: number } | null = null;
+let saldo: { pontos: number; restaurePorSegundo: number; em: number } | null =
+  null;
 
 /**
  * Custo real da última execução de cada consulta.
@@ -109,24 +117,25 @@ async function admin<T>(
   variables: Record<string, unknown> = {},
   tentativa = 0,
 ): Promise<T> {
-  const loja = exigir('SHOPIFY_SHOP');
+  const loja = exigir("SHOPIFY_SHOP");
   const token = await accessToken();
   const versao = config().SHOPIFY_API_VERSION;
 
   await esperarSaldo(custoConhecido.get(query) ?? 100);
 
   const res = await fetch(`https://${loja}/admin/api/${versao}/graphql.json`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': token,
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": token,
     },
     body: JSON.stringify({ query, variables }),
   });
 
   // 429 vem sem corpo útil; o throttle do GraphQL vem com 200 e erro no corpo.
   if (res.status === 429) {
-    if (tentativa >= 5) throw new Error('Shopify: limite de requisições, 5 tentativas');
+    if (tentativa >= 5)
+      throw new Error("Shopify: limite de requisições, 5 tentativas");
     await dormir(2000 * 2 ** tentativa);
     return admin<T>(query, variables, tentativa + 1);
   }
@@ -138,24 +147,31 @@ async function admin<T>(
   const json = (await res.json()) as RespostaGraphQL<T>;
 
   const custo = json.extensions?.cost?.requestedQueryCost;
-  if (typeof custo === 'number') {
+  if (typeof custo === "number") {
     custoConhecido.set(query, custo);
     if (process.env.DEBUG_SHOPIFY_CUSTO) {
       console.error(
-        `[shopify] pedido ${custo} · real ${json.extensions?.cost?.actualQueryCost ?? '?'} · ` +
-          `saldo ${json.extensions?.cost?.throttleStatus?.currentlyAvailable ?? '?'}`,
+        `[shopify] pedido ${custo} · real ${json.extensions?.cost?.actualQueryCost ?? "?"} · ` +
+          `saldo ${json.extensions?.cost?.throttleStatus?.currentlyAvailable ?? "?"}`,
       );
     }
   }
 
   const t = json.extensions?.cost?.throttleStatus;
   if (t) {
-    saldo = { pontos: t.currentlyAvailable, restaurePorSegundo: t.restoreRate, em: Date.now() };
+    saldo = {
+      pontos: t.currentlyAvailable,
+      restaurePorSegundo: t.restoreRate,
+      em: Date.now(),
+    };
   }
 
-  const throttled = json.errors?.some((e) => e.extensions?.code === 'THROTTLED');
+  const throttled = json.errors?.some(
+    (e) => e.extensions?.code === "THROTTLED",
+  );
   if (throttled) {
-    if (tentativa >= 5) throw new Error('Shopify: limite de requisições, 5 tentativas');
+    if (tentativa >= 5)
+      throw new Error("Shopify: limite de requisições, 5 tentativas");
     // Espera crescente: 2s, 4s, 8s… O balde restaura sozinho nesse intervalo.
     await dormir(2000 * 2 ** tentativa);
     return admin<T>(query, variables, tentativa + 1);
@@ -164,7 +180,7 @@ async function admin<T>(
   if (json.errors?.length) {
     throw new Error(`Shopify GraphQL: ${JSON.stringify(json.errors)}`);
   }
-  if (!json.data) throw new Error('Shopify devolveu resposta sem data');
+  if (!json.data) throw new Error("Shopify devolveu resposta sem data");
   return json.data;
 }
 
@@ -205,7 +221,10 @@ export interface OrderNode extends PedidoClassificavel {
       product?: { id?: string | null } | null;
       discountAllocations?: Array<{
         allocatedAmountSet: { shopMoney: { amount: string } };
-        discountApplication?: { __typename?: string; code?: string | null } | null;
+        discountApplication?: {
+          __typename?: string;
+          code?: string | null;
+        } | null;
       }>;
     }>;
   };
@@ -261,7 +280,8 @@ export function mediaPorHora(
       if (v.receita > 0) fracoes.push(ate.receita / v.receita);
     }
 
-    const media = (xs: number[]) => (xs.length ? xs.reduce((t, x) => t + x, 0) / xs.length : 0);
+    const media = (xs: number[]) =>
+      xs.length ? xs.reduce((t, x) => t + x, 0) / xs.length : 0;
     return { hora, receita: media(reais), fracaoDoDia: media(fracoes) };
   });
 }
@@ -440,13 +460,16 @@ export async function pedidosCriadosEntre(
     // cobertura de estoque precisa de todo pedido: peça de um Pix ainda não
     // compensado já saiu da prateleira, e esperar a compensação para contar
     // demanda atrasa justamente o alerta de ruptura.
-    filtroExtra ?? '',
+    filtroExtra ?? "",
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(" ");
 
   interface Pagina {
-    orders: { nodes: OrderNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    orders: {
+      nodes: OrderNode[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   }
 
   const pedidos: OrderNode[] = [];
@@ -455,14 +478,18 @@ export async function pedidosCriadosEntre(
   do {
     const data: Pagina = await admin<Pagina>(ORDERS_QUERY, { q, cursor });
     pedidos.push(...data.orders.nodes);
-    cursor = data.orders.pageInfo.hasNextPage ? data.orders.pageInfo.endCursor : null;
+    cursor = data.orders.pageInfo.hasNextPage
+      ? data.orders.pageInfo.endCursor
+      : null;
   } while (cursor);
 
   return pedidos;
 }
 
 /** Agrupa por dia de pagamento. Um pedido sem captura bem-sucedida fica de fora. */
-export function agruparPorDiaDePagamento(pedidos: OrderNode[]): Map<string, OrderNode[]> {
+export function agruparPorDiaDePagamento(
+  pedidos: OrderNode[],
+): Map<string, OrderNode[]> {
   const porDia = new Map<string, OrderNode[]>();
 
   for (const p of pedidos) {
@@ -517,7 +544,9 @@ export interface PeriodoDeVendas {
  * sairia menor do que é — justamente para o produto cuja cobertura mais
  * importa. Aqui a contagem passa por todos os itens de todos os pedidos.
  */
-export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> {
+export async function periodoDeVendas(
+  dias: string[],
+): Promise<PeriodoDeVendas> {
   const ordenados = [...dias].sort();
   const primeiro = ordenados[0];
   const ultimo = ordenados[ordenados.length - 1];
@@ -596,7 +625,8 @@ export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> 
       };
       atual.unidades += item.quantity;
       if (recente) atual.unidades7d += item.quantity;
-      if (!atual.produtoId && item.product?.id) atual.produtoId = item.product.id;
+      if (!atual.produtoId && item.product?.id)
+        atual.produtoId = item.product.id;
       unidadesPorProduto.set(item.title, atual);
     }
   }
@@ -609,7 +639,9 @@ export async function periodoDeVendas(dias: string[]): Promise<PeriodoDeVendas> 
   };
 }
 
-export async function vendasPorDia(dias: string[]): Promise<Map<string, ResumoVendas>> {
+export async function vendasPorDia(
+  dias: string[],
+): Promise<Map<string, ResumoVendas>> {
   return (await periodoDeVendas(dias)).porDia;
 }
 
@@ -618,7 +650,10 @@ export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
   const inicio = new Date(`${dia}T12:00:00-03:00`);
   inicio.setDate(inicio.getDate() - FOLGA_PAGAMENTO);
 
-  const pedidos = await pedidosCriadosEntre(inicio.toISOString().slice(0, 10), dia);
+  const pedidos = await pedidosCriadosEntre(
+    inicio.toISOString().slice(0, 10),
+    dia,
+  );
   return pedidos.filter((p) => diaDoPagamento(p) === dia);
 }
 
@@ -641,15 +676,16 @@ export async function pedidosPagosEm(dia: string): Promise<OrderNode[]> {
  */
 function instanteDoPagamento(pedido: OrderNode): Date | null {
   for (const t of pedido.transactions) {
-    if (t.status !== 'SUCCESS') continue;
-    if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') continue;
+    if (t.status !== "SUCCESS") continue;
+    if (t.kind !== "SALE" && t.kind !== "CAPTURE") continue;
     if (!t.processedAt) continue;
     return new Date(t.processedAt);
   }
 
-  const semCobranca = pedido.transactions.every((t) => t.status !== 'SUCCESS');
-  const jaPago = (pedido.displayFinancialStatus ?? '').toUpperCase() === 'PAID';
-  if (semCobranca && jaPago && num(pedido.totalPriceSet) === 0) return new Date(pedido.createdAt);
+  const semCobranca = pedido.transactions.every((t) => t.status !== "SUCCESS");
+  const jaPago = (pedido.displayFinancialStatus ?? "").toUpperCase() === "PAID";
+  if (semCobranca && jaPago && num(pedido.totalPriceSet) === 0)
+    return new Date(pedido.createdAt);
 
   return null;
 }
@@ -657,9 +693,9 @@ function instanteDoPagamento(pedido: OrderNode): Date | null {
 /** A hora do dia em São Paulo, 0 a 23. */
 function horaEmSaoPaulo(d: Date): number {
   return Number(
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'America/Sao_Paulo',
-      hour: '2-digit',
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
       hour12: false,
     }).format(d),
   );
@@ -667,8 +703,8 @@ function horaEmSaoPaulo(d: Date): number {
 
 function diaDoPagamento(pedido: OrderNode): string | null {
   for (const t of pedido.transactions) {
-    if (t.status !== 'SUCCESS') continue;
-    if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') continue;
+    if (t.status !== "SUCCESS") continue;
+    if (t.kind !== "SALE" && t.kind !== "CAPTURE") continue;
     if (!t.processedAt) continue;
     return emSaoPaulo(t.processedAt);
   }
@@ -676,8 +712,8 @@ function diaDoPagamento(pedido: OrderNode): string | null {
   // Sem transação, já marcado como pago e com total zero: não havia o que
   // capturar. O status precisa ser conferido aqui porque a busca não filtra
   // mais por pagamento — pendente também chega nesta função.
-  const semCobranca = pedido.transactions.every((t) => t.status !== 'SUCCESS');
-  const jaPago = (pedido.displayFinancialStatus ?? '').toUpperCase() === 'PAID';
+  const semCobranca = pedido.transactions.every((t) => t.status !== "SUCCESS");
+  const jaPago = (pedido.displayFinancialStatus ?? "").toUpperCase() === "PAID";
   if (semCobranca && jaPago && num(pedido.totalPriceSet) === 0) {
     return emSaoPaulo(pedido.createdAt);
   }
@@ -686,11 +722,11 @@ function diaDoPagamento(pedido: OrderNode): string | null {
 }
 
 function emSaoPaulo(iso: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(iso));
 }
 
@@ -698,7 +734,8 @@ function emSaoPaulo(iso: string): string {
  * Agregação
  * ------------------------------------------------------------------ */
 
-const num = (v?: { shopMoney: { amount: string } } | null) => Number(v?.shopMoney.amount ?? 0);
+const num = (v?: { shopMoney: { amount: string } } | null) =>
+  Number(v?.shopMoney.amount ?? 0);
 
 /**
  * A categoria de um produto, tirada da primeira palavra do título.
@@ -717,8 +754,8 @@ const num = (v?: { shopMoney: { amount: string } } | null) => Number(v?.shopMone
  * coleções de categoria e não custa nenhuma chamada extra à API.
  */
 export function categoriaDoProduto(titulo: string): string {
-  const primeira = titulo.trim().split(/\s+/)[0] ?? '';
-  if (!primeira) return 'Sem categoria';
+  const primeira = titulo.trim().split(/\s+/)[0] ?? "";
+  if (!primeira) return "Sem categoria";
   return primeira.charAt(0).toUpperCase() + primeira.slice(1).toLowerCase();
 }
 
@@ -772,10 +809,10 @@ export function quebraDeDesconto(pedido: OrderNode): {
       alocado += valor;
 
       const app = a.discountApplication;
-      const codigo = norm(app?.code ?? '');
+      const codigo = norm(app?.code ?? "");
 
-      if (codigo.startsWith('troca')) continue; // crédito de troca, não desconto
-      if (app?.__typename === 'DiscountCodeApplication') cupom += valor;
+      if (codigo.startsWith("troca")) continue; // crédito de troca, não desconto
+      if (app?.__typename === "DiscountCodeApplication") cupom += valor;
       else promocao += valor;
     }
   }
@@ -810,7 +847,11 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   const porProduto = new Map<string, { pecas: number; receita: number }>();
   const porCategoria = new Map<string, { pecas: number; receita: number }>();
   const porCupom = new Map<string, { pedidos: number; valor: number }>();
-  const porHora = HORAS_DE_CORTE.map((hora) => ({ hora, receita: 0, pedidos: 0 }));
+  const porHora = HORAS_DE_CORTE.map((hora) => ({
+    hora,
+    receita: 0,
+    pedidos: 0,
+  }));
   const seedingPorProduto = new Map<string, number>();
   const porGateway = new Map<string, number>();
   let freteCobrado = 0;
@@ -824,7 +865,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   for (const p of pedidos) {
     const cat = categoria(p);
 
-    if (cat === 'influencer') {
+    if (cat === "influencer") {
       influencers++;
       for (const item of p.lineItems.nodes) {
         seedingPorProduto.set(
@@ -839,12 +880,12 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       continue;
     }
 
-    if (cat === 'reenvio') {
+    if (cat === "reenvio") {
       reenvios++;
       continue;
     }
 
-    if (cat === 'troca') {
+    if (cat === "troca") {
       trocas++;
       troca.total++;
 
@@ -863,7 +904,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
        * "Devolução", "Sem Reembolso" e "Troca e devolução". Quem separa é o
        * pedido gerado, e é por isso que a classificação mora aqui.
        */
-      if (norm(p.app?.name ?? '').includes('troque')) {
+      if (norm(p.app?.name ?? "").includes("troque")) {
         troca.direta.pedidos++;
         for (const item of p.lineItems.nodes) {
           troca.direta.pecas += item.quantity;
@@ -877,8 +918,10 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
         troca.porCupom.diferencaPaga += num(p.totalPriceSet);
         for (const item of p.lineItems.nodes) {
           for (const a of item.discountAllocations ?? []) {
-            if (norm(a.discountApplication?.code ?? '').startsWith('troca')) {
-              troca.porCupom.valor += Number(a.allocatedAmountSet?.shopMoney.amount ?? 0);
+            if (norm(a.discountApplication?.code ?? "").startsWith("troca")) {
+              troca.porCupom.valor += Number(
+                a.allocatedAmountSet?.shopMoney.amount ?? 0,
+              );
             }
           }
         }
@@ -894,9 +937,10 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     // O meio de pagamento decide a taxa. Um dia com muito Pix custa bem menos
     // que o mesmo faturamento no cartão parcelado.
     const captura = p.transactions.find(
-      (t) => t.status === 'SUCCESS' && (t.kind === 'SALE' || t.kind === 'CAPTURE'),
+      (t) =>
+        t.status === "SUCCESS" && (t.kind === "SALE" || t.kind === "CAPTURE"),
     );
-    const via = (captura?.gateway ?? 'não identificado').trim();
+    const via = (captura?.gateway ?? "não identificado").trim();
     porGateway.set(via, (porGateway.get(via) ?? 0) + total);
 
     // Acumulado por hora de corte. O pedido entra em toda hora posterior ao
@@ -922,9 +966,9 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     for (const item of p.lineItems.nodes) {
       for (const a of item.discountAllocations ?? []) {
         const app = a.discountApplication;
-        if (app?.__typename !== 'DiscountCodeApplication') continue;
-        const codigo = (app.code ?? '').trim();
-        if (!codigo || norm(codigo).startsWith('troca')) continue;
+        if (app?.__typename !== "DiscountCodeApplication") continue;
+        const codigo = (app.code ?? "").trim();
+        if (!codigo || norm(codigo).startsWith("troca")) continue;
         const valor = Number(a.allocatedAmountSet?.shopMoney.amount ?? 0);
         cuponsDoPedido.set(codigo, (cuponsDoPedido.get(codigo) ?? 0) + valor);
       }
@@ -944,7 +988,8 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       atual.pecas += item.quantity;
       // Rateia a receita do pedido entre as peças, para que um produto vendido
       // dentro de uma promoção não apareça com o preço cheio.
-      const rateio = itensDoPedido > 0 ? (total * item.quantity) / itensDoPedido : 0;
+      const rateio =
+        itensDoPedido > 0 ? (total * item.quantity) / itensDoPedido : 0;
       atual.receita += rateio;
       porProduto.set(item.title, atual);
 
@@ -1054,23 +1099,32 @@ const CLIENTES_QUERY = `
  * madrugada e o envio — caso em que o pedido de ontem aparece como recompra. O
  * viés é pequeno e sempre no mesmo sentido.
  */
-export async function novosVsRecorrentes(dia: string): Promise<NovosVsRecorrentes | null> {
+export async function novosVsRecorrentes(
+  dia: string,
+): Promise<NovosVsRecorrentes | null> {
   const inicio = new Date(`${dia}T12:00:00-03:00`);
   inicio.setDate(inicio.getDate() - FOLGA_PAGAMENTO);
 
   const q = [
     `created_at:>='${inicio.toISOString().slice(0, 10)}T00:00:00-03:00'`,
     `created_at:<='${dia}T23:59:59-03:00'`,
-    'financial_status:paid',
-  ].join(' ');
+    "financial_status:paid",
+  ].join(" ");
 
   interface Node extends PedidoClassificavel {
     totalPriceSet: { shopMoney: { amount: string } };
-    transactions: Array<{ processedAt: string | null; kind: string; status: string }>;
+    transactions: Array<{
+      processedAt: string | null;
+      kind: string;
+      status: string;
+    }>;
     customer?: { numberOfOrders?: number | string | null } | null;
   }
   interface Pagina {
-    orders: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    orders: {
+      nodes: Node[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   }
 
   const r: NovosVsRecorrentes = {
@@ -1089,13 +1143,16 @@ export async function novosVsRecorrentes(dia: string): Promise<NovosVsRecorrente
 
       for (const p of d.orders.nodes) {
         // Mesmas exclusões do faturamento: troca e influencer não são venda.
-        if (categoria(p) !== 'venda') continue;
+        if (categoria(p) !== "venda") continue;
 
         // E o mesmo recorte: pago NO dia, não criado no dia.
         const captura = p.transactions.find(
-          (t) => t.status === 'SUCCESS' && (t.kind === 'SALE' || t.kind === 'CAPTURE'),
+          (t) =>
+            t.status === "SUCCESS" &&
+            (t.kind === "SALE" || t.kind === "CAPTURE"),
         );
-        if (!captura?.processedAt || emSaoPaulo(captura.processedAt) !== dia) continue;
+        if (!captura?.processedAt || emSaoPaulo(captura.processedAt) !== dia)
+          continue;
 
         const valor = Number(p.totalPriceSet.shopMoney.amount);
         const n = Number(p.customer?.numberOfOrders ?? 0);
@@ -1121,8 +1178,8 @@ export async function novosVsRecorrentes(dia: string): Promise<NovosVsRecorrente
     // Railway todo dia às 8h sem dizer nada além da primeira linha.
     const msg = e instanceof Error ? e.message : String(e);
     console.error(
-      msg.includes('read_customers')
-        ? '[shopify] novo x recorrente indisponível: falta o escopo read_customers no app'
+      msg.includes("read_customers")
+        ? "[shopify] novo x recorrente indisponível: falta o escopo read_customers no app"
         : `[shopify] novo x recorrente indisponível: ${msg.slice(0, 200)}`,
     );
     return null;
@@ -1150,13 +1207,19 @@ export interface EstoqueDeProduto {
  * acabando" seria preciso descer à variante, que é outra conversa e outro
  * relatório.
  */
-export async function estoqueDeProdutos(ids: string[]): Promise<Map<string, EstoqueDeProduto>> {
+export async function estoqueDeProdutos(
+  ids: string[],
+): Promise<Map<string, EstoqueDeProduto>> {
   const saida = new Map<string, EstoqueDeProduto>();
   const limpos = [...new Set(ids.filter(Boolean))];
   if (!limpos.length) return saida;
 
   interface Resposta {
-    nodes: Array<{ id: string; title: string; totalInventory: number | null } | null>;
+    nodes: Array<{
+      id: string;
+      title: string;
+      totalInventory: number | null;
+    } | null>;
   }
 
   for (let i = 0; i < limpos.length; i += 50) {
@@ -1171,7 +1234,11 @@ export async function estoqueDeProdutos(ids: string[]): Promise<Map<string, Esto
     );
     for (const n of d.nodes) {
       if (!n?.id) continue;
-      saida.set(n.id, { produtoId: n.id, titulo: n.title, unidades: n.totalInventory ?? 0 });
+      saida.set(n.id, {
+        produtoId: n.id,
+        titulo: n.title,
+        unidades: n.totalInventory ?? 0,
+      });
     }
   }
 
@@ -1200,7 +1267,12 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
       nodes: Array<{
         id: string;
         title: string;
-        variants: { nodes: Array<{ price: string | null; inventoryQuantity: number | null }> };
+        variants: {
+          nodes: Array<{
+            price: string | null;
+            inventoryQuantity: number | null;
+          }>;
+        };
       }>;
       pageInfo: { hasNextPage: boolean; endCursor: string };
     };
@@ -1233,9 +1305,17 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
         unidades += q;
         valorDeVenda += Number(v.price ?? 0) * q;
       }
-      if (unidades > 0) saida.push({ produtoId: p.id, titulo: p.title, unidades, valorDeVenda });
+      if (unidades > 0)
+        saida.push({
+          produtoId: p.id,
+          titulo: p.title,
+          unidades,
+          valorDeVenda,
+        });
     }
-    cursor = d.products.pageInfo.hasNextPage ? d.products.pageInfo.endCursor : null;
+    cursor = d.products.pageInfo.hasNextPage
+      ? d.products.pageInfo.endCursor
+      : null;
   } while (cursor);
 
   return saida;
@@ -1307,7 +1387,7 @@ export async function checkoutsAbandonadosDetalhados(
   const q = [
     `created_at:>='${dia}T00:00:00-03:00'`,
     `created_at:<='${dia}T23:59:59-03:00'`,
-  ].join(' ');
+  ].join(" ");
 
   const saida: CheckoutAbandonado[] = [];
   let cursor: string | null = null;
@@ -1316,11 +1396,15 @@ export async function checkoutsAbandonadosDetalhados(
     const d: Pagina = await admin<Pagina>(query, { q, cursor });
     for (const c of d.abandonedCheckouts.nodes) {
       saida.push({
-        id: c.id.split('/').pop() ?? c.id,
-        token: c.abandonedCheckoutUrl?.match(/\/checkouts\/ac\/([^/?]+)/)?.[1] ?? null,
-        temTelefone: [c.customer?.phone, c.billingAddress?.phone, c.shippingAddress?.phone].some(
-          (t) => (t ?? '').trim().length > 0,
-        ),
+        id: c.id.split("/").pop() ?? c.id,
+        token:
+          c.abandonedCheckoutUrl?.match(/\/checkouts\/ac\/([^/?]+)/)?.[1] ??
+          null,
+        temTelefone: [
+          c.customer?.phone,
+          c.billingAddress?.phone,
+          c.shippingAddress?.phone,
+        ].some((t) => (t ?? "").trim().length > 0),
         valor: num(c.totalPriceSet),
         criadoEm: c.createdAt,
       });
@@ -1333,7 +1417,9 @@ export async function checkoutsAbandonadosDetalhados(
   return saida;
 }
 
-export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbandonados> {
+export async function checkoutsAbandonados(
+  dia: string,
+): Promise<CheckoutsAbandonados> {
   interface Pagina {
     abandonedCheckouts: {
       nodes: Array<{
@@ -1363,7 +1449,7 @@ export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbando
   const q = [
     `created_at:>='${dia}T00:00:00-03:00'`,
     `created_at:<='${dia}T23:59:59-03:00'`,
-  ].join(' ');
+  ].join(" ");
 
   const saida: CheckoutsAbandonados = { total: 0, comTelefone: 0, valor: 0 };
   let cursor: string | null = null;
@@ -1373,9 +1459,11 @@ export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbando
     for (const c of d.abandonedCheckouts.nodes) {
       saida.total++;
       saida.valor += num(c.totalPriceSet);
-      const tem = [c.customer?.phone, c.billingAddress?.phone, c.shippingAddress?.phone].some(
-        (t) => (t ?? '').trim().length > 0,
-      );
+      const tem = [
+        c.customer?.phone,
+        c.billingAddress?.phone,
+        c.shippingAddress?.phone,
+      ].some((t) => (t ?? "").trim().length > 0);
       if (tem) saida.comTelefone++;
     }
     cursor = d.abandonedCheckouts.pageInfo.hasNextPage
@@ -1402,13 +1490,17 @@ export async function checkoutsAbandonados(dia: string): Promise<CheckoutsAbando
  * O `name:` aceita OR, e o lote de 25 é conservador: o custo da query cresce
  * com os campos de refund e transação, não com o tamanho do filtro.
  */
-export async function reembolsosDePedidos(nomes: string[]): Promise<Map<string, Estorno[]>> {
+export async function reembolsosDePedidos(
+  nomes: string[],
+): Promise<Map<string, Estorno[]>> {
   const saida = new Map<string, Estorno[]>();
-  const limpos = [...new Set(nomes.map((n) => n.replace(/\D/g, '')).filter(Boolean))];
+  const limpos = [
+    ...new Set(nomes.map((n) => n.replace(/\D/g, "")).filter(Boolean)),
+  ];
 
   for (let i = 0; i < limpos.length; i += 25) {
     const lote = limpos.slice(i, i + 25);
-    const q = lote.map((n) => `name:${n}`).join(' OR ');
+    const q = lote.map((n) => `name:${n}`).join(" OR ");
 
     interface Resposta {
       orders: {
@@ -1451,15 +1543,20 @@ export async function reembolsosDePedidos(nomes: string[]): Promise<Map<string, 
         let liquidado = 0;
         let pendente = 0;
         for (const tr of r.transactions?.nodes ?? []) {
-          if (tr.kind !== 'REFUND') continue;
+          if (tr.kind !== "REFUND") continue;
           const v = Number(tr.amountSet?.shopMoney.amount ?? 0);
-          if (tr.status === 'SUCCESS') liquidado += v;
-          else if (tr.status === 'PENDING') pendente += v;
+          if (tr.status === "SUCCESS") liquidado += v;
+          else if (tr.status === "PENDING") pendente += v;
         }
         if (!liquidado && !pendente) continue;
-        lista.push({ pedido: pedido.name, valor: liquidado, pendente, em: r.createdAt });
+        lista.push({
+          pedido: pedido.name,
+          valor: liquidado,
+          pendente,
+          em: r.createdAt,
+        });
       }
-      if (lista.length) saida.set(pedido.name.replace(/\D/g, ''), lista);
+      if (lista.length) saida.set(pedido.name.replace(/\D/g, ""), lista);
     }
   }
 
@@ -1566,7 +1663,7 @@ export async function estornosEntre(
   // caso que mais confunde.
   const q = [
     `updated_at:>='${inicio.toISOString().slice(0, 10)}T00:00:00-03:00'`,
-  ].join(' ');
+  ].join(" ");
 
   interface Node extends PedidoClassificavel {
     name: string;
@@ -1582,7 +1679,10 @@ export async function estornosEntre(
     }>;
   }
   interface Pagina {
-    orders: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    orders: {
+      nodes: Node[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   }
 
   const lista: Estorno[] = [];
@@ -1601,7 +1701,7 @@ export async function estornosEntre(
       // TroqueCommerce não há reversa nenhuma para casar. O mesmo vale para
       // reenvio.
       const cat = categoria(pedido);
-      if (cat === 'influencer' || cat === 'reenvio') continue;
+      if (cat === "influencer" || cat === "reenvio") continue;
 
       for (const r of pedido.refunds ?? []) {
         const diaDoRefund = emSaoPaulo(r.createdAt);
@@ -1613,14 +1713,19 @@ export async function estornosEntre(
         let liquidado = 0;
         let pendente = 0;
         for (const tr of r.transactions?.nodes ?? []) {
-          if (tr.kind !== 'REFUND') continue;
+          if (tr.kind !== "REFUND") continue;
           const v = Number(tr.amountSet?.shopMoney.amount ?? 0);
-          if (tr.status === 'SUCCESS') liquidado += v;
-          else if (tr.status === 'PENDING') pendente += v;
+          if (tr.status === "SUCCESS") liquidado += v;
+          else if (tr.status === "PENDING") pendente += v;
         }
 
         if (!liquidado && !pendente) continue;
-        lista.push({ pedido: pedido.name, valor: liquidado, pendente, em: r.createdAt });
+        lista.push({
+          pedido: pedido.name,
+          valor: liquidado,
+          pendente,
+          em: r.createdAt,
+        });
       }
     }
     if (!d.orders.pageInfo.hasNextPage) {
@@ -1636,7 +1741,7 @@ export async function estornosEntre(
   if (!acabou) {
     throw new Error(
       `Shopify: mais de ${MAX_PAGINAS} páginas de reembolso entre ${de} e ${ate}. ` +
-        'Reduza o intervalo — devolver uma lista parcial produziria divergências falsas.',
+        "Reduza o intervalo — devolver uma lista parcial produziria divergências falsas.",
     );
   }
 
@@ -1698,15 +1803,15 @@ export async function trafegoDoDia(dia: string): Promise<Trafego> {
   const data = await admin<RespostaShopifyQL>(SHOPIFYQL, { query: q });
 
   const erros = data.shopifyqlQuery.parseErrors;
-  if (erros?.length) throw new Error(`ShopifyQL: ${erros.join('; ')}`);
+  if (erros?.length) throw new Error(`ShopifyQL: ${erros.join("; ")}`);
 
   const linha = data.shopifyqlQuery.tableData?.rows?.[0] ?? {};
   const n = (chave: string) => Number(linha[chave] ?? 0);
 
-  const sessoes = n('sessions');
-  const adicoes = n('sessions_with_cart_additions');
-  const iniciados = n('sessions_that_reached_checkout');
-  const concluidos = n('sessions_that_completed_checkout');
+  const sessoes = n("sessions");
+  const adicoes = n("sessions_with_cart_additions");
+  const iniciados = n("sessions_that_reached_checkout");
+  const concluidos = n("sessions_that_completed_checkout");
 
   return {
     sessoes,
@@ -1716,4 +1821,60 @@ export async function trafegoDoDia(dia: string): Promise<Trafego> {
     checkoutsConcluidos: concluidos,
     conversao: sessoes > 0 ? concluidos / sessoes : 0,
   };
+}
+
+/**
+ * Os comentários que a equipe escreve na linha do tempo do pedido.
+ *
+ * Existem por um limite da Shopify: transação capturada não muda de gateway.
+ * Os métodos de pagamento manuais nomeados no admin valem para pedidos novos,
+ * mas o pedido de ontem continua marcado como `manual` para sempre — e a
+ * atendente declara a forma de pagamento escrevendo "pagbank", "pagar.me" ou
+ * "pix" num comentário. É texto livre, e por isso pior que um campo; mas é o
+ * único registro que existe para o que já foi criado, e ignorá-lo seria jogar
+ * fora a única pista.
+ */
+export async function comentariosDePedidos(
+  nomes: string[],
+): Promise<Map<string, string[]>> {
+  const fora = new Map<string, string[]>();
+  if (!nomes.length) return fora;
+
+  const query = `query($q: String!) {
+    orders(first: 50, query: $q) {
+      nodes {
+        name
+        events(first: 30) { nodes { __typename message } }
+      }
+    }
+  }`;
+
+  // Em blocos, porque a busca por nome vira uma expressão OR longa.
+  for (let i = 0; i < nomes.length; i += 20) {
+    const bloco = nomes.slice(i, i + 20);
+    const q = bloco.map((n) => `name:${n.replace("#", "")}`).join(" OR ");
+    const r = await admin<{
+      orders: {
+        nodes: Array<{
+          name: string;
+          events: { nodes: Array<{ __typename: string; message: string }> };
+        }>;
+      };
+    }>(query, { q });
+
+    for (const o of r.orders.nodes) {
+      const comentarios = o.events.nodes
+        .filter((e) => e.__typename === "CommentEvent")
+        .map((e) =>
+          e.message
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim(),
+        )
+        .filter(Boolean);
+      fora.set(o.name, comentarios);
+    }
+  }
+
+  return fora;
 }

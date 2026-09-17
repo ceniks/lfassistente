@@ -1041,6 +1041,10 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
    * custa mais que a primeira e não aparecia em lugar nenhum. Provado, o que
    * interessa no dia a dia é quanto a venda pela Pagar.me custa de verdade.
    */
+  for (const v of m.vendas.filter((x) => x.nota)) {
+    linha(doc, ` ${v.pedido}`, "", v.nota ?? "", RUIM);
+  }
+
   if (m.taxa && m.taxa.bruto > 0) {
     const total = m.taxa.taxa + m.taxa.antecipacao + m.taxa.antecipacaoPrevista;
     linha(

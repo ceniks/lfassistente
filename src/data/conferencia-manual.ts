@@ -21,7 +21,16 @@
  * encheria o relatório de linha vermelha sem consequência.
  */
 import { categoria } from "./classify.js";
-import { pedidosPagosEm, type OrderNode } from "./shopify.js";
+import {
+  comentariosDePedidos,
+  pedidosPagosEm,
+  type OrderNode,
+} from "./shopify.js";
+import {
+  transacoesDoDia,
+  temPagBank,
+  type TransacaoPagBank,
+} from "./pagbank.js";
 import {
   pedidosDoDia,
   taxaDasCobrancas,
@@ -79,6 +88,8 @@ export interface PedidoManual {
   codigo: string | null;
   /** Ponte para os recebíveis, de onde sai a taxa. */
   chargeId: string | null;
+  /** Observação quando o rastro existe mas não confirma o pagamento. */
+  nota?: string;
 }
 
 export interface ConferenciaManual {
@@ -121,6 +132,26 @@ const valorManual = (p: OrderNode) =>
     0,
   );
 
+/**
+ * O que a atendente declarou por escrito, quando não teve onde escolher.
+ *
+ * Transação capturada não muda de gateway na Shopify, então o pedido criado
+ * antes dos métodos nomeados fica como `manual` para sempre. O que sobra é o
+ * comentário: "pagbank", "pagar.me", "pix", "pix e pagar.me". Reconhecemos só
+ * essas formas e nada mais — texto livre que não casa com nenhuma vira
+ * `null`, e o pedido segue sem método declarado em vez de ganhar um inventado.
+ */
+export function metodoNoComentario(comentarios: string[]): string | null {
+  const achados = new Set<string>();
+  for (const c of comentarios) {
+    const n = normalizarGateway(c);
+    if (/pagar\.?\s?me/.test(n)) achados.add("pagar.me");
+    if (/pagbank|pagseguro/.test(n)) achados.add("pagbank");
+    if (/\bpix\b/.test(n)) achados.add("pix");
+  }
+  return achados.size ? [...achados].join(" + ") : null;
+}
+
 /** O método que a atendente escolheu, quando ela teve onde escolher. */
 const metodoDeclarado = (p: OrderNode) => {
   const gs = [
@@ -140,13 +171,31 @@ export async function conferirPagosAMao(
   ]);
 
   const manuais = pedidos.filter(ehManual);
+
+  /*
+   * Para os que ficaram no `manual` genérico, o método só existe escrito na
+   * linha do tempo. Uma busca só, e apenas para esses poucos pedidos.
+   */
+  const semMetodo = manuais.filter(
+    (p) => normalizarGateway(metodoDeclarado(p)) === "manual",
+  );
+  const [comentarios, noPagBank] = await Promise.all([
+    comentariosDePedidos(semMetodo.map((p) => p.name)),
+    temPagBank()
+      ? transacoesDoDia(dia)
+      : Promise.resolve([] as TransacaoPagBank[]),
+  ]);
   const pagos = naPagarme.filter((p) => p.pago);
   const usados = new Set<string>();
 
   const conferir = (p: OrderNode): PedidoManual => {
     const valor = valorManual(p);
     const email = (p.email ?? "").toLowerCase();
-    const metodo = metodoDeclarado(p);
+    const escolhido = metodoDeclarado(p);
+    const metodo =
+      normalizarGateway(escolhido) === "manual"
+        ? (metodoNoComentario(comentarios.get(p.name) ?? []) ?? escolhido)
+        : escolhido;
 
     /*
      * Pix declarado cai direto na conta do PagBank, fora de qualquer gateway —
@@ -156,6 +205,38 @@ export async function conferirPagosAMao(
      * relatório de vermelho que ninguém pode resolver. Ele tem situação
      * própria e fica separado até existir acesso ao extrato da conta.
      */
+    /*
+     * Método declarado como PagBank: o dinheiro teria que estar na conta que a
+     * conferência do gateway já lê. Se houver uma transação do mesmo valor mas
+     * cancelada, isso não é rastro — é o contrário, é o link que não foi pago,
+     * e precisa ser dito assim. O caso real: #139235, link de R$ 399,80 criado
+     * às 07:29 e cancelado, com o pedido marcado como pago às 10:51.
+     */
+    if (/pagbank/.test(normalizarGateway(metodo))) {
+      const mesmoValor = noPagBank.filter(
+        (t) => Math.abs(t.bruto - valor) <= TOLERANCIA,
+      );
+      const paga = mesmoValor.find((t) => t.valeComoVenda);
+      const cancelada = mesmoValor.find((t) => !t.valeComoVenda);
+      return {
+        pedido: p.name,
+        valor,
+        categoria: categoria(p),
+        email,
+        metodo,
+        situacao: paga ? "exato" : "sem-rastro",
+        encontrado: paga?.bruto ?? 0,
+        semRastro: paga ? 0 : valor,
+        codigo: paga?.codigo ?? cancelada?.codigo ?? null,
+        chargeId: null,
+        nota: paga
+          ? undefined
+          : cancelada
+            ? "há uma cobrança do mesmo valor no PagBank, mas cancelada"
+            : "nada desse valor na conta PagBank do site — pode ter sido na maquininha",
+      };
+    }
+
     if (ehPixDireto(metodo)) {
       return {
         pedido: p.name,
