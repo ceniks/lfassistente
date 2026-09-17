@@ -174,10 +174,10 @@ export function margemDoDia(
   );
   const taxaDePagamento = taxaEstimada + (medida?.taxa ?? 0);
 
-  const taxaDaPlataforma = vendas.receita * (c.TAXA_PLATAFORMA_PCT / 100);
+  const taxaDaPlataforma = vendas.receitaTotal * (c.TAXA_PLATAFORMA_PCT / 100);
   const custoDeFrete = c.CUSTO_FRETE_POR_PEDIDO * vendas.pedidos;
 
-  const margemBruta = vendas.receita - cmv;
+  const margemBruta = vendas.receitaTotal - cmv;
   const margemDeContribuicao =
     margemBruta - midia - taxaDePagamento - taxaDaPlataforma - custoDeFrete;
 
@@ -185,7 +185,7 @@ export function margemDoDia(
   if (!c.CUSTO_FRETE_POR_PEDIDO) parametrosFaltando.push("custo do frete");
 
   return {
-    receita: vendas.receita,
+    receita: vendas.receitaTotal,
     cmv,
     pecasComCusto,
     pecasSemCusto,

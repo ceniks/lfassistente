@@ -137,7 +137,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       const v = vendasPorData.get(d);
       return {
         dia: d,
-        receita: v?.receita ?? 0,
+        receita: v?.receitaTotal ?? 0,
         pedidos: v?.pedidos ?? 0,
         ticket: v?.ticketMedio ?? 0,
       };
@@ -156,7 +156,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
   const somar = <T>(xs: T[], f: (x: T) => number) =>
     xs.reduce((s, x) => s + f(x), 0);
   const n = resumos.length || 1;
-  const receitaTotal = somar(resumos, (r) => r.receita);
+  const receitaTotal = somar(resumos, (r) => r.receitaTotal);
   const descontoTotal = somar(resumos, (r) => r.desconto.total);
 
   const [

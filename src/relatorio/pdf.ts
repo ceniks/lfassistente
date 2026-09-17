@@ -271,9 +271,9 @@ function indicadores(doc: Doc, d: DadosRelatorio) {
   const caixas = [
     {
       rotulo: "Faturamento",
-      valor: dinheiro(v.receita),
+      valor: dinheiro(v.receitaTotal),
       nota: d.meta
-        ? `${pct(d.meta > 0 ? v.receita / d.meta : 0, 0)} da meta`
+        ? `${pct(d.meta > 0 ? v.receitaTotal / d.meta : 0, 0)} da meta`
         : "sem meta no sistema",
     },
     {
@@ -289,10 +289,12 @@ function indicadores(doc: Doc, d: DadosRelatorio) {
     {
       rotulo: "Mídia sobre receita",
       valor:
-        v.receita > 0 && gastoTotal > 0 ? pct(gastoTotal / v.receita) : "—",
+        v.receitaTotal > 0 && gastoTotal > 0
+          ? pct(gastoTotal / v.receitaTotal)
+          : "—",
       nota:
         gastoTotal > 0
-          ? `MER ${numero(v.receita / gastoTotal, 2)}`
+          ? `MER ${numero(v.receitaTotal / gastoTotal, 2)}`
           : "sem gasto",
     },
   ];
@@ -397,27 +399,44 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
   const v = d.vendas;
   titulo(doc, "Vendas");
 
-  const varReceita = variacao(v.receita, d.media7d.receita);
+  /*
+   * Faturamento é venda mais diferença de troca, e as duas aparecem.
+   *
+   * A diferença é dinheiro que entrou de verdade — cartão passado, taxa
+   * cobrada —, então deixá-la fora subestimava o dia. Mas ela não é compra
+   * nova: some das duas linhas seguintes, que existem para responder "quantas
+   * clientes compraram e por quanto", e ganha contagem própria.
+   */
+  const varReceita = variacao(v.receitaTotal, d.media7d.receita);
   linha(
     doc,
     "Receita",
-    dinheiro(v.receita),
+    dinheiro(v.receitaTotal),
     `vs média 7d ${varReceita}`,
     corDaVariacao(varReceita),
   );
+  if (v.diferencaDeTroca > 0) {
+    linha(doc, " venda", dinheiro(v.receita), "compras novas");
+    linha(
+      doc,
+      " diferença de troca",
+      dinheiro(v.diferencaDeTroca),
+      `${numero(v.pedidosDeDiferenca)} pedido(s) pagos de diferença de troca`,
+    );
+  }
   const varPedidos = variacao(v.pedidos, d.media7d.pedidos);
   linha(
     doc,
     "Pedidos pagos",
     numero(v.pedidos),
-    `vs média 7d ${varPedidos}`,
+    `vs média 7d ${varPedidos} · sem os de diferença de troca`,
     corDaVariacao(varPedidos),
   );
   linha(
     doc,
     "Ticket médio",
     dinheiro(v.ticketMedio),
-    `média 7d ${dinheiro(d.media7d.ticketMedio)}`,
+    `média 7d ${dinheiro(d.media7d.ticketMedio)} · só compras novas`,
   );
   linha(
     doc,
@@ -428,7 +447,7 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
 
   if (d.semanaPassada) {
     const s = d.semanaPassada;
-    const varSemana = variacao(v.receita, s.receita);
+    const varSemana = variacao(v.receitaTotal, s.receita);
     linha(
       doc,
       "Mesmo dia da semana passada",
@@ -439,7 +458,7 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
   }
 
   if (d.meta !== null) {
-    const falta = d.meta - v.receita;
+    const falta = d.meta - v.receitaTotal;
     linha(
       doc,
       "Meta do dia",
@@ -460,7 +479,8 @@ function secaoVendas(doc: Doc, d: DadosRelatorio) {
 
     paragrafo(
       doc,
-      `Fora da conta: ${fora.join(", ")}. Nenhum é venda nova: troca e seeding entram nos seus ` +
+      `Fora da conta: ${fora.join(", ")}. Nenhum é compra nova: a diferença paga na troca já entrou ` +
+        "na receita acima, e troca e seeding entram nos seus " +
         "próprios blocos, e reenvio é peça mandada de novo sem cobrança. O seeding é reconhecido " +
         "pelo cupom FRETEINFLUENCERS, não pela tag — a tag varia (Influencer, MS, MS OUTUBRO) e " +
         "deixava metade dos pedidos passando como venda.",
@@ -754,7 +774,8 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     doc,
     "Contribuição, não lucro: falta o custo fixo — salários, aluguel, sistemas — que não é " +
       "diário. O custo das peças cobre tudo que saiu do estoque, vendido e seeding, e vem do " +
-      "Corte Pro, do corte mais recente de cada modelo. " +
+      "Corte Pro, do corte mais recente de cada modelo. A diferença paga nas trocas entra na receita " +
+      "sem custo de peça, porque a peça devolvida repõe a que sai. " +
       (m.pecasSemCusto > 0
         ? `${numero(m.pecasSemCusto)} peças são de modelos sem corte registrado lá e entraram ` +
           `por estimativa, ao mesmo custo sobre preço das demais — ${dinheiro(m.custoEstimado)} ` +

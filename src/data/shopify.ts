@@ -308,6 +308,19 @@ export interface TrocasDoDia {
 export interface ResumoVendas {
   data: string;
   pedidos: number;
+  /**
+   * Faturamento do dia: a venda mais a diferença paga nas trocas por cupom.
+   *
+   * A diferença é dinheiro que entrou — a cliente passou o cartão e o gateway
+   * cobrou taxa —, então ficar fora do faturamento a subestimava. Mas ela não
+   * é venda nova: entra só aqui, nunca no ticket médio nem na contagem de
+   * pedidos pagos, que continuam medindo quantas compras novas o dia fez.
+   */
+  receitaTotal: number;
+  /** A diferença paga nas trocas, já incluída em `receitaTotal`. */
+  diferencaDeTroca: number;
+  /** Quantos pedidos de diferença de troca foram pagos no dia. */
+  pedidosDeDiferenca: number;
   receita: number;
   ticketMedio: number;
   pecas: number;
@@ -965,6 +978,9 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     data: dia,
     pedidos: contagem,
     receita,
+    receitaTotal: receita + troca.porCupom.diferencaPaga,
+    diferencaDeTroca: troca.porCupom.diferencaPaga,
+    pedidosDeDiferenca: troca.porCupom.pedidos,
     ticketMedio: contagem > 0 ? receita / contagem : 0,
     pecas,
     pecasPorPedido: contagem > 0 ? pecas / contagem : 0,
