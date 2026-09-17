@@ -34,6 +34,7 @@ import {
   conferirMercadoPago,
   type ConferenciaPagBank,
 } from "../data/conferencia-pagbank.js";
+import { estoqueParado, type Encalhe } from "../data/encalhe.js";
 import {
   conferirPagosAMao,
   type ConferenciaManual,
@@ -88,6 +89,8 @@ export interface DadosRelatorio {
   clientes: NovosVsRecorrentes | null;
   cobertura: Cobertura[] | null;
   patrimonio: Patrimonio | null;
+  /** O outro lado do estoque: o que está parado além do necessário. */
+  encalhe: Encalhe | null;
   /** Conferência de cada venda do PagBank contra a cobrança no gateway. */
   pagbank: ConferenciaPagBank | null;
   /** Mesma conferência no gateway do Pix. */
@@ -173,6 +176,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     clientes,
     cobertura,
     patrimonio,
+    encalhe,
     pagbank,
     mercadopago,
     manual,
@@ -196,6 +200,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
     ),
     opcional("patrimônio", () => patrimonioDoDia()),
+    opcional("encalhe", () => estoqueParado(periodo)),
     opcional("pagbank", () => conferirPagBank(dia)),
     opcional("mercado pago", () => conferirMercadoPago(dia)),
     opcional("pagos à mão", () => conferirPagosAMao(dia)),
@@ -237,6 +242,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     clientes,
     cobertura,
     patrimonio,
+    encalhe,
     pagbank,
     mercadopago,
     manual,

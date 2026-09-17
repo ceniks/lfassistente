@@ -217,7 +217,11 @@ export interface OrderNode extends PedidoClassificavel {
     nodes: Array<{
       title: string;
       quantity: number;
-      variant?: { price?: string | null } | null;
+      variant?: {
+        price?: string | null;
+        /** "Cor: Cereja", "Tamanho: M". É o que permite ler grade. */
+        selectedOptions?: Array<{ name: string; value: string }>;
+      } | null;
       product?: { id?: string | null } | null;
       discountAllocations?: Array<{
         allocatedAmountSet: { shopMoney: { amount: string } };
@@ -348,6 +352,10 @@ export interface ResumoVendas {
   receitaTotal: number;
   /** A diferença paga nas trocas, já incluída em `receitaTotal`. */
   diferencaDeTroca: number;
+  /** Tamanhos vendidos no dia, do mais para o menos. */
+  tamanhos: Array<{ valor: string; pecas: number }>;
+  /** Cores vendidas no dia, do mais para o menos. */
+  cores: Array<{ valor: string; pecas: number }>;
   /** Quantos pedidos de diferença de troca foram pagos no dia. */
   pedidosDeDiferenca: number;
   /**
@@ -411,7 +419,7 @@ const ORDERS_QUERY = `
           nodes {
             title
             quantity
-            variant { price }
+            variant { price selectedOptions { name value } }
             product { id }
             discountAllocations {
               allocatedAmountSet { shopMoney { amount } }
@@ -874,6 +882,13 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   let freteCobrado = 0;
   /** Peças que saíram nos pedidos de troca por cupom, para o balanço de custo. */
   const saidasDeTroca = new Map<string, { pecas: number; receita: number }>();
+  /*
+   * Grade vendida no dia. Só das vendas: troca e seeding distorceriam — troca
+   * é sempre correção de tamanho, e por definição enviesa a leitura de qual
+   * tamanho o mercado compra.
+   */
+  const tamanhos = new Map<string, number>();
+  const cores = new Map<string, number>();
 
   const troca: TrocasDoDia = {
     total: 0,
@@ -1019,6 +1034,28 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
       atual.receita += rateio;
       porProduto.set(item.title, atual);
 
+      /*
+       * Grade. O nome da opção varia entre produtos ("Tamanho", "Talla",
+       * "Size"), então a leitura é por prefixo e não por igualdade — e o que
+       * não casa com nenhum dos dois é ignorado em silêncio, porque opção de
+       * produto é campo livre e inventar categoria a partir dela erraria mais
+       * do que acertaria.
+       */
+      for (const op of item.variant?.selectedOptions ?? []) {
+        const nome = norm(op.name);
+        const valor = op.value.trim();
+        if (!valor) continue;
+        if (
+          nome.startsWith("tam") ||
+          nome.startsWith("siz") ||
+          nome.startsWith("tal")
+        ) {
+          tamanhos.set(valor, (tamanhos.get(valor) ?? 0) + item.quantity);
+        } else if (nome.startsWith("cor") || nome.startsWith("col")) {
+          cores.set(valor, (cores.get(valor) ?? 0) + item.quantity);
+        }
+      }
+
       const nomeCat = categoriaDoProduto(item.title);
       const cate = porCategoria.get(nomeCat) ?? { pecas: 0, receita: 0 };
       cate.pecas += item.quantity;
@@ -1055,6 +1092,12 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     receita,
     receitaTotal: receita + troca.porCupom.diferencaPaga,
     diferencaDeTroca: troca.porCupom.diferencaPaga,
+    tamanhos: [...tamanhos.entries()]
+      .map(([valor, pecas]) => ({ valor, pecas }))
+      .sort((x, y) => y.pecas - x.pecas),
+    cores: [...cores.entries()]
+      .map(([valor, pecas]) => ({ valor, pecas }))
+      .sort((x, y) => y.pecas - x.pecas),
     pedidosDeDiferenca: troca.porCupom.pedidos,
     pedidosQueEnviaram: contagem + trocas + influencers + reenvios,
     ticketMedio: contagem > 0 ? receita / contagem : 0,

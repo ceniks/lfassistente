@@ -1334,6 +1334,128 @@ function secaoProdutos(doc: Doc, d: DadosRelatorio) {
     [LARGURA - 240, 80, 80, 80],
     ["left", "right", "right", "right"],
   );
+
+  /*
+   * A grade do dia: qual tamanho e qual cor o mercado levou.
+   *
+   * Só das vendas. Troca é, por definição, correção de tamanho — incluí-la
+   * inflaria justamente os tamanhos que deram errado e mostraria a grade ao
+   * contrário. Seeding também fica de fora: quem escolhe a peça é a equipe,
+   * não a cliente.
+   */
+  const v = d.vendas;
+  const somaT = v.tamanhos.reduce((t, x) => t + x.pecas, 0);
+  if (somaT > 0) {
+    tabela(
+      doc,
+      ["Tamanho", "Peças", "% das peças"],
+      v.tamanhos.map((t) => [t.valor, numero(t.pecas), pct(t.pecas / somaT)]),
+      [LARGURA - 260, 130, 130],
+      ["left", "right", "right"],
+    );
+  }
+
+  const somaC = v.cores.reduce((t, x) => t + x.pecas, 0);
+  if (somaC > 0) {
+    const top = v.cores.slice(0, 5);
+    const resto = somaC - top.reduce((t, x) => t + x.pecas, 0);
+    tabela(
+      doc,
+      ["Cor", "Peças", "% das peças"],
+      [
+        ...top.map((c) => [c.valor, numero(c.pecas), pct(c.pecas / somaC)]),
+        ...(resto > 0
+          ? [
+              [
+                `outras ${numero(v.cores.length - top.length)} cores`,
+                numero(resto),
+                pct(resto / somaC),
+              ],
+            ]
+          : []),
+      ],
+      [LARGURA - 260, 130, 130],
+      ["left", "right", "right"],
+    );
+  }
+
+  if (somaT > 0 || somaC > 0) {
+    paragrafo(
+      doc,
+      "Tamanho e cor saem das opções da variante, peça a peça, e cobrem as " +
+        `${numero(Math.max(somaT, somaC))} peças vendidas no dia. Só venda entra: troca é correção ` +
+        "de tamanho e inverteria a leitura, e no seeding quem escolhe é a equipe.",
+      TINTA3,
+    );
+  }
+}
+
+/**
+ * O outro lado do estoque: o que está parado além do necessário.
+ *
+ * O bloco dos campeões responde "o que vai acabar". Este responde "onde o
+ * dinheiro está preso", que ninguém perguntava — e por isso ninguém via.
+ */
+function secaoEncalhe(doc: Doc, d: DadosRelatorio) {
+  const e = d.encalhe;
+  if (!e || e.itens.length === 0) return;
+
+  titulo(doc, "Estoque parado");
+
+  const parado = e.semGiro.custo + e.excesso.custo;
+  linha(
+    doc,
+    "Custo parado",
+    dinheiro(parado),
+    `${e.custoNaLoja > 0 ? pct(parado / e.custoNaLoja) : "—"} do custo em estoque · ` +
+      `${numero(e.semGiro.unidades + e.excesso.unidades)} peças além de 90 dias de venda`,
+    RUIM,
+  );
+  if (e.semGiro.produtos > 0) {
+    linha(
+      doc,
+      " sem vender há 15 dias",
+      numero(e.semGiro.produtos),
+      `${numero(e.semGiro.unidades)} peças · ${dinheiro(e.semGiro.custo)}`,
+      RUIM,
+    );
+  }
+  linha(
+    doc,
+    " com estoque demais",
+    numero(e.excesso.produtos),
+    `${numero(e.excesso.unidades)} peças · ${dinheiro(e.excesso.custo)}`,
+  );
+
+  tabela(
+    doc,
+    ["Peça", "Estoque", "Vendeu 15d", "Acaba em", "Excesso", "Custo parado"],
+    e.itens
+      .slice(0, 12)
+      .map((i) => [
+        i.titulo,
+        numero(i.unidades),
+        numero(i.vendidas15d),
+        i.diasParaAcabar === null
+          ? "nunca"
+          : `${numero(Math.round(i.diasParaAcabar))} d`,
+        numero(i.excesso),
+        i.custoDoExcesso !== null ? dinheiro(i.custoDoExcesso) : "sem custo",
+      ]),
+    [LARGURA - 350, 60, 70, 65, 60, 95],
+    ["left", "right", "right", "right", "right", "right"],
+  );
+
+  paragrafo(
+    doc,
+    "O que conta aqui não é cobertura alta, é excesso: quanto de estoque existe ACIMA do que 90 " +
+      "dias de venda consumiriam. A primeira versão marcava os próprios campeões como encalhados " +
+      "— o Blazer Las Vegas vende 650 peças em quinze dias e tem estoque fundo, o que é escolha, " +
+      "não problema. Medindo o excesso, ele quase some da lista e sobra quem realmente não gira. " +
+      "A régua de venda é a mesma da cobertura dos campeões, para os dois blocos não discordarem. " +
+      "Produto sem corte no Corte Pro entra sem custo, então o total é piso.",
+    TINTA3,
+  );
 }
 
 function secaoCategorias(doc: Doc, d: DadosRelatorio) {
@@ -1974,6 +2096,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoMargem(doc, d);
     secaoProdutos(doc, d);
     secaoEstoque(doc, d);
+    secaoEncalhe(doc, d);
     secaoCategorias(doc, d);
     secaoTrocasPagas(doc, d);
     secaoPagamento(doc, d);
