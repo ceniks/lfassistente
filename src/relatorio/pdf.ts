@@ -603,8 +603,10 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     doc,
     '(-) Taxa de pagamento',
     dinheiro(m.taxaDePagamento),
-    `${daReceita(m.taxaDePagamento)} da receita` +
-      (m.parcelasUsadas ? ` · cartão calculado em ${numero(m.parcelasUsadas)}x` : ''),
+    `${daReceita(m.taxaDePagamento)} da receita · ` +
+      (m.parcelasUsadas
+        ? `cartão calculado em ${numero(m.parcelasUsadas)}x`
+        : `${numero(config().TAXA_CARTAO_PCT, 2)}% no cartão, ${numero(config().TAXA_PIX_PCT, 2)}% no Pix`),
   );
   linha(
     doc,
@@ -640,9 +642,8 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
       (m.parametrosFaltando.length
         ? `Ainda falta configurar ${m.parametrosFaltando.join(' e ')}, então a margem acima está ` +
           'otimista nesses pontos — o número real é menor.'
-        : 'A taxa do cartão depende do parcelamento e a Shopify não informa em quantas parcelas ' +
-          'a cliente pagou — só bandeira e final do cartão. Por isso o cálculo usa um número ' +
-          'médio de parcelas, e ele é parâmetro, não medição.'),
+        : 'A taxa do gateway é a mesma para qualquer parcelamento, então o número acima não ' +
+          'depende de estimativa. Cada pedido entra pela taxa do meio de pagamento que ele usou.'),
     TINTA3,
   );
 }

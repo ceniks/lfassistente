@@ -92,17 +92,17 @@ const schema = z.object({
    * que margem incompleta, e o boletim avisa quando o parâmetro está zerado.
    */
   /**
-   * Parcelas médias do cartão.
+   * Taxa de desconto do gateway no cartão.
    *
-   * A taxa do cartão depende do número de parcelas (3,15% à vista, 8,50% em
-   * 10x) e **a Shopify não informa o parcelamento**: conferido em 16/09/2026,
-   * `receiptJson` traz só um payment_id e `paymentDetails` traz bandeira e
-   * final do cartão. Enquanto o dado não vier do PagBank, o cálculo usa este
-   * número, e o boletim diz em quantas parcelas calculou.
+   * **6,10% é a taxa que a L&F paga**, informada pelo Luis em 17/09/2026 — é
+   * uma taxa única, não a tabela por parcela do PagBank (3,15% à vista até
+   * 8,50% em 10x). Por isso o parcelamento deixou de importar para a margem, e
+   * bem: a Shopify não informa em quantas parcelas a cliente pagou, nem em
+   * `paymentDetails`, nem em `metafields`, nem na linha do tempo do pedido.
    */
+  TAXA_CARTAO_PCT: z.coerce.number().min(0).max(30).default(6.1),
+  /** Usada só se a taxa do cartão for zerada, para voltar à tabela por parcela. */
   PARCELAS_MEDIAS: z.coerce.number().int().min(1).max(10).default(6),
-  /** Sobrepõe a tabela de parcelas, se um dia a taxa virar única. */
-  TAXA_CARTAO_PCT: z.coerce.number().min(0).max(30).default(0),
   TAXA_PIX_PCT: z.coerce.number().min(0).max(30).default(0.99),
   TAXA_BOLETO_PCT: z.coerce.number().min(0).max(30).default(0),
   /** Comissão da Shopify por usar gateway externo, sobre toda venda. */
