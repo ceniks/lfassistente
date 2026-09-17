@@ -244,8 +244,15 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     margem: margemDoDia(
       vendas,
       (midia?.valorPago ?? 0) + (google?.valorPago ?? 0),
-      pagbank
-        ? { taxa: pagbank.taxaReal, receita: pagbank.valorConferido }
+      // As duas taxas medidas entram juntas: cada gateway cobre a sua fatia do
+      // faturamento, e só o que nenhum dos dois alcança continua estimado.
+      pagbank || mercadopago
+        ? {
+            taxa: (pagbank?.taxaReal ?? 0) + (mercadopago?.taxaReal ?? 0),
+            receita:
+              (pagbank?.valorConferido ?? 0) +
+              (mercadopago?.valorConferido ?? 0),
+          }
         : null,
     ),
   };
