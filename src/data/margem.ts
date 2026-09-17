@@ -43,6 +43,10 @@ export interface Margem {
   /** Peças dadas em seeding, a custo. Saiu do caixa e não é mídia declarada. */
   custoDoSeeding: number;
   pecasDeSeeding: number;
+  /** Balanço de custo das trocas: o que saiu menos o que voltou. */
+  custoDaTroca: number;
+  custoQueSaiuNaTroca: number;
+  custoQueVoltouNaTroca: number;
   margemDeContribuicao: number;
   /** Parcelas que dependem de parâmetro e ainda estão zeradas. */
   parametrosFaltando: string[];
@@ -155,7 +159,55 @@ export function margemDoDia(
     }
   }
 
-  const cmv = custoConhecido + custoEstimado + custoDoSeeding;
+  /*
+   * O balanço de custo da troca.
+   *
+   * A troca por cupom não é neutra no estoque, e tratá-la assim inflava a
+   * margem justamente nas trocas mais caras: se a cliente pagou diferença, é
+   * porque a peça que saiu vale — e custa — mais que a que voltou. O que entra
+   * no CMV é a diferença entre os dois lados, não o custo cheio da peça nova.
+   *
+   * A peça que saiu tem custo conhecido, item a item. A que voltou não: o que
+   * se sabe dela é o valor do cupom, que é o preço pelo qual ela foi vendida.
+   * Por isso ela entra pela mesma razão custo-sobre-preço das demais — a mesma
+   * técnica já usada para peça sem corte registrado, e pelo mesmo motivo.
+   *
+   * Quando o balanço dá negativo (a cliente trocou por algo mais barato) ele
+   * fica em zero: aí não há diferença paga, a peça que voltou é a mais cara, e
+   * creditar isso no custo do dia seria transformar devolução em lucro.
+   */
+  let custoQueSaiuNaTroca = 0;
+  for (const p of vendas.trocasDoDia.porCupom.pecasQueSairam) {
+    const unitario = custoDe(p.titulo);
+    custoQueSaiuNaTroca +=
+      unitario !== undefined ? unitario * p.pecas : p.receita * razaoDeCusto;
+  }
+
+  /*
+   * A peça que voltou entra pela razão custo-sobre-preço medida nas peças que
+   * saíram nessa mesma troca — não pela razão do dia.
+   *
+   * O motivo é que os dois lados precisam estar na mesma régua. O cupom é o
+   * preço realizado da peça devolvida; o preço de etiqueta das que saíram é
+   * outro número. Misturar as duas réguas dava balanço negativo em 16/09 — como
+   * se a cliente tivesse pago R$ 2.418 de diferença para levar algo mais
+   * barato, o que é absurdo.
+   *
+   * Com a mesma régua, o balanço vira o custo embutido na diferença que ela
+   * pagou, que é exatamente o que se quer somar.
+   */
+  const valorRealizadoDaTroca =
+    vendas.trocasDoDia.porCupom.valor +
+    vendas.trocasDoDia.porCupom.diferencaPaga;
+  const razaoDaTroca =
+    valorRealizadoDaTroca > 0
+      ? custoQueSaiuNaTroca / valorRealizadoDaTroca
+      : razaoDeCusto;
+  const custoQueVoltouNaTroca =
+    vendas.trocasDoDia.porCupom.valor * razaoDaTroca;
+  const custoDaTroca = Math.max(0, custoQueSaiuNaTroca - custoQueVoltouNaTroca);
+
+  const cmv = custoConhecido + custoEstimado + custoDoSeeding + custoDaTroca;
 
   /*
    * A taxa medida vale mais que a estimada, então o PagBank sai da conta por
@@ -175,7 +227,8 @@ export function margemDoDia(
   const taxaDePagamento = taxaEstimada + (medida?.taxa ?? 0);
 
   const taxaDaPlataforma = vendas.receitaTotal * (c.TAXA_PLATAFORMA_PCT / 100);
-  const custoDeFrete = c.CUSTO_FRETE_POR_PEDIDO * vendas.pedidos;
+  // Por postagem, não por venda: troca, seeding e reenvio despacham igual.
+  const custoDeFrete = c.CUSTO_FRETE_POR_PEDIDO * vendas.pedidosQueEnviaram;
 
   const margemBruta = vendas.receitaTotal - cmv;
   const margemDeContribuicao =
@@ -203,6 +256,9 @@ export function margemDoDia(
     freteCobrado: vendas.freteCobrado,
     custoDoSeeding,
     pecasDeSeeding,
+    custoDaTroca,
+    custoQueSaiuNaTroca,
+    custoQueVoltouNaTroca,
     margemDeContribuicao,
     parametrosFaltando,
   };

@@ -321,6 +321,15 @@ export interface TrocasDoDia {
     valor: number;
     /** O que a cliente pagou além do cupom — a diferença de verdade. */
     diferencaPaga: number;
+    /**
+     * As peças que saíram do estoque nesses pedidos.
+     *
+     * A troca não é neutra no estoque: se há diferença a pagar, é porque a
+     * peça que saiu vale mais que a que voltou — e custa mais também. Sem
+     * estas peças aqui, a diferença entrava como receita sem nenhum custo, o
+     * que inflava a margem exatamente nas trocas mais caras.
+     */
+    pecasQueSairam: Array<{ titulo: string; pecas: number; receita: number }>;
   };
   direta: { pedidos: number; pecas: number; valorAPrecoDeSite: number };
 }
@@ -341,6 +350,14 @@ export interface ResumoVendas {
   diferencaDeTroca: number;
   /** Quantos pedidos de diferença de troca foram pagos no dia. */
   pedidosDeDiferenca: number;
+  /**
+   * Todos os pedidos que geram postagem no dia.
+   *
+   * Frete se paga por caixa despachada, não por venda: troca, seeding e
+   * reenvio saem pelos Correios igual. Usar a contagem de vendas para o custo
+   * de frete deixava 43 pedidos de fora em 16/09 — um quarto das postagens.
+   */
+  pedidosQueEnviaram: number;
   receita: number;
   ticketMedio: number;
   pecas: number;
@@ -855,10 +872,12 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
   const seedingPorProduto = new Map<string, number>();
   const porGateway = new Map<string, number>();
   let freteCobrado = 0;
+  /** Peças que saíram nos pedidos de troca por cupom, para o balanço de custo. */
+  const saidasDeTroca = new Map<string, { pecas: number; receita: number }>();
 
-  const troca = {
+  const troca: TrocasDoDia = {
     total: 0,
-    porCupom: { pedidos: 0, valor: 0, diferencaPaga: 0 },
+    porCupom: { pedidos: 0, valor: 0, diferencaPaga: 0, pecasQueSairam: [] },
     direta: { pedidos: 0, pecas: 0, valorAPrecoDeSite: 0 },
   };
 
@@ -912,6 +931,13 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
         }
       } else {
         troca.porCupom.pedidos++;
+        for (const item of p.lineItems.nodes) {
+          const chave = item.title.trim();
+          const atual = saidasDeTroca.get(chave) ?? { pecas: 0, receita: 0 };
+          atual.pecas += item.quantity;
+          atual.receita += valorAPrecoDeSite(item);
+          saidasDeTroca.set(chave, atual);
+        }
         // O que a cliente pagou além do cupom. É esta a diferença de troca:
         // o pedido novo já sai com o cupom abatido, então o total é o que
         // saiu do bolso dela.
@@ -1019,6 +1045,10 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     .sort((a, b) => b.pedidos - a.pedidos || b.valor - a.valor)
     .slice(0, 3);
 
+  troca.porCupom.pecasQueSairam = [...saidasDeTroca.entries()]
+    .map(([titulo, v]) => ({ titulo, ...v }))
+    .sort((x, y) => y.receita - x.receita);
+
   return {
     data: dia,
     pedidos: contagem,
@@ -1026,6 +1056,7 @@ export function agregar(pedidos: OrderNode[], dia: string): ResumoVendas {
     receitaTotal: receita + troca.porCupom.diferencaPaga,
     diferencaDeTroca: troca.porCupom.diferencaPaga,
     pedidosDeDiferenca: troca.porCupom.pedidos,
+    pedidosQueEnviaram: contagem + trocas + influencers + reenvios,
     ticketMedio: contagem > 0 ? receita / contagem : 0,
     pecas,
     pecasPorPedido: contagem > 0 ? pecas / contagem : 0,

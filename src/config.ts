@@ -121,7 +121,18 @@ const schema = z.object({
   TAXA_BOLETO_PCT: z.coerce.number().min(0).max(30).default(0),
   /** Comissão da Shopify por usar gateway externo, sobre toda venda. */
   TAXA_PLATAFORMA_PCT: z.coerce.number().min(0).max(30).default(0.6),
-  CUSTO_FRETE_POR_PEDIDO: z.coerce.number().min(0).default(0),
+  /**
+   * Custo médio de postagem, por pedido despachado.
+   *
+   * R$ 27,55 = a fatura dos Correios de agosto de 2026, R$ 127.497,12, sobre
+   * os 4.628 pedidos despachados no mês. É média de fatura fechada, não
+   * estimativa — mas é média: pedido pesado para o Norte custa muito mais que
+   * peça única na capital, e isso não aparece aqui.
+   *
+   * Vale reconferir a cada fatura. A conta cobre todo pedido que gera
+   * postagem, incluindo troca, seeding e reenvio.
+   */
+  CUSTO_FRETE_POR_PEDIDO: z.coerce.number().min(0).default(27.55),
   /**
    * Token do PagBank.
    *

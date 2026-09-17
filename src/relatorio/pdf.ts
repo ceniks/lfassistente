@@ -760,6 +760,14 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     `${daReceita(m.cmv)} da receita · ${numero(m.pecasQueSairam)} peças que saíram` +
       (m.pecasDeSeeding > 0 ? ` (${numero(m.pecasDeSeeding)} de seeding)` : ""),
   );
+  if (m.custoDaTroca > 0) {
+    linha(
+      doc,
+      " balanço das trocas",
+      dinheiro(m.custoDaTroca),
+      `${dinheiro(m.custoQueSaiuNaTroca)} que saíram menos ${dinheiro(m.custoQueVoltouNaTroca)} que voltaram`,
+    );
+  }
   linha(
     doc,
     "(=) Margem bruta",
@@ -792,12 +800,18 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     dinheiro(m.taxaDaPlataforma),
     `${numero(config().TAXA_PLATAFORMA_PCT, 2)}% da Shopify por usar gateway externo`,
   );
+  const resultadoDoFrete = m.freteCobrado - m.custoDeFrete;
   linha(
     doc,
     "(-) Frete",
     m.custoDeFrete > 0 ? dinheiro(m.custoDeFrete) : "não configurado",
-    `cobrado da cliente: ${dinheiro(m.freteCobrado)}`,
-    m.custoDeFrete > 0 ? TINTA : RUIM,
+    m.custoDeFrete > 0
+      ? `${dinheiro(m.freteCobrado)} cobrados da cliente · ` +
+          (resultadoDoFrete >= 0
+            ? `sobra ${dinheiro(resultadoDoFrete)}`
+            : `você banca ${dinheiro(-resultadoDoFrete)}`)
+      : `cobrado da cliente: ${dinheiro(m.freteCobrado)}`,
+    m.custoDeFrete <= 0 || resultadoDoFrete < 0 ? RUIM : TINTA,
   );
   linha(
     doc,
@@ -812,7 +826,9 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     "Contribuição, não lucro: falta o custo fixo — salários, aluguel, sistemas — que não é " +
       "diário. O custo das peças cobre tudo que saiu do estoque, vendido e seeding, e vem do " +
       "Corte Pro, do corte mais recente de cada modelo. A diferença paga nas trocas entra na receita " +
-      "sem custo de peça, porque a peça devolvida repõe a que sai. " +
+      "com o balanço de custo da troca junto: a peça que sai menos a que volta, porque quem paga " +
+      "diferença leva algo que também custa mais. O frete vem da fatura dos Correios de agosto " +
+      "dividida pelas postagens do mês, e incide sobre todo pedido que despacha. " +
       (m.pecasSemCusto > 0
         ? `${numero(m.pecasSemCusto)} peças são de modelos sem corte registrado lá e entraram ` +
           `por estimativa, ao mesmo custo sobre preço das demais — ${dinheiro(m.custoEstimado)} ` +
