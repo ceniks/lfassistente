@@ -33,6 +33,10 @@ import {
   conferirPagBank,
   type ConferenciaPagBank,
 } from "../data/conferencia-pagbank.js";
+import {
+  conferirPagosAMao,
+  type ConferenciaManual,
+} from "../data/conferencia-manual.js";
 
 /**
  * O material do boletim completo.
@@ -85,6 +89,8 @@ export interface DadosRelatorio {
   patrimonio: Patrimonio | null;
   /** Conferência de cada venda do PagBank contra a cobrança no gateway. */
   pagbank: ConferenciaPagBank | null;
+  /** Conferência dos pedidos pagos à mão contra a Pagar.me. */
+  manual: ConferenciaManual | null;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
   media7dPorHora: MediaDaHora[];
   margem: Margem;
@@ -165,6 +171,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     cobertura,
     patrimonio,
     pagbank,
+    manual,
   ] = await Promise.all([
     trafegoDoDia(dia),
     Promise.all(seteDias.map((d) => trafegoDoDia(d))),
@@ -186,6 +193,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     ),
     opcional("patrimônio", () => patrimonioDoDia()),
     opcional("pagbank", () => conferirPagBank(dia)),
+    opcional("pagos à mão", () => conferirPagosAMao(dia)),
   ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
@@ -225,6 +233,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     cobertura,
     patrimonio,
     pagbank,
+    manual,
     media7dPorHora,
     margem: margemDoDia(
       vendas,

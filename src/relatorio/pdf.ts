@@ -873,6 +873,8 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
   );
 
   for (const g of c.foraDoAlcance) {
+    // "manual" tem bloco próprio logo abaixo quando a Pagar.me está ligada.
+    if (g.gateway === "manual" && d.manual) continue;
     const naMao = g.gateway === "manual";
     linha(
       doc,
@@ -921,6 +923,104 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
       TINTA3,
     );
   }
+}
+
+/**
+ * Os pedidos pagos à mão, conferidos contra a Pagar.me.
+ *
+ * Era a última fatia do faturamento sem contrapartida: rascunho que a
+ * atendente marca como pago depois que a cliente paga por um link. O bloco
+ * existe para separar o que tem rastro do que não tem — e para não fingir
+ * exatidão: o casamento é por valor e cliente, não por identificador, porque
+ * pedido manual não tem identificador de pagamento.
+ */
+function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
+  const m = d.manual;
+  if (!m || m.vendas.length === 0) return;
+
+  titulo(doc, "Vendas pagas à mão");
+
+  linha(
+    doc,
+    "Vendas marcadas como pagas",
+    numero(m.vendas.length),
+    `${dinheiro(m.valorDasVendas)} — rascunhos do atendimento, sem gateway na Shopify`,
+  );
+  linha(
+    doc,
+    "Achado na Pagar.me",
+    dinheiro(m.rastreado),
+    m.valorDasVendas > 0
+      ? `${pct(m.rastreado / m.valorDasVendas)} do total`
+      : "",
+    BOM,
+  );
+  linha(
+    doc,
+    "Sem rastro nenhum",
+    dinheiro(m.semRastro),
+    m.semRastro > 0
+      ? "só existe porque alguém marcou como pago"
+      : "todo valor tem contrapartida",
+    m.semRastro > 0 ? RUIM : BOM,
+  );
+
+  tabela(
+    doc,
+    ["Pedido", "Valor", "Situação", "Na Pagar.me", "Sem rastro"],
+    m.vendas.map((v) => [
+      v.pedido,
+      dinheiro(v.valor),
+      v.situacao === "exato"
+        ? "bateu"
+        : v.situacao === "parcial"
+          ? "pago em parte"
+          : "sem rastro",
+      v.encontrado > 0 ? dinheiro(v.encontrado) : "-",
+      v.semRastro > 0 ? dinheiro(v.semRastro) : "-",
+    ]),
+    [70, 90, 100, 100, LARGURA - 360],
+    ["left", "right", "left", "right", "right"],
+  );
+
+  if (m.outros.quantidade > 0) {
+    linha(
+      doc,
+      "Reenvio e troca pagos à mão",
+      dinheiro(m.outros.valor),
+      `${numero(m.outros.quantidade)} pedido(s) — é frete, já fica fora do faturamento`,
+      TINTA3,
+    );
+  }
+  if (m.recusadas.quantidade > 0) {
+    linha(
+      doc,
+      "Recusadas na Pagar.me",
+      numero(m.recusadas.quantidade),
+      `${dinheiro(m.recusadas.valor)} em tentativas que não passaram antes de pagar`,
+      TINTA3,
+    );
+  }
+  if (m.orfaos.length > 0) {
+    linha(
+      doc,
+      "Pago na Pagar.me sem pedido",
+      numero(m.orfaos.length),
+      `${dinheiro(m.orfaos.reduce((s, o) => s + o.valor, 0))} — entrou e nenhum pedido reivindicou`,
+      RUIM,
+    );
+  }
+
+  paragrafo(
+    doc,
+    "Aqui o casamento é por valor e e-mail da cliente, não por identificador: pedido marcado " +
+      "como pago à mão não tem identificador de pagamento nenhum, então esta conferência é mais " +
+      'fraca que a do gateway, de propósito declarado. "Pago em parte" quase sempre é pagamento ' +
+      "dividido — parte no link, parte em Pix — e o que fica sem rastro é a parte que ninguém " +
+      "consegue verificar. Nomear os métodos de pagamento manuais na Shopify (Pagar.me, Pix, " +
+      "dinheiro) transformaria isso em dado e tornaria a conferência exata.",
+    TINTA3,
+  );
 }
 
 function secaoRitmo(doc: Doc, d: DadosRelatorio) {
@@ -1711,6 +1811,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoProdutos(doc, d);
     secaoMargem(doc, d);
     secaoPagamento(doc, d);
+    secaoPagosAMao(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
     secaoEstoque(doc, d);

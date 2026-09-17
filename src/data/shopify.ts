@@ -181,6 +181,8 @@ export interface OrderNode extends PedidoClassificavel {
   subtotalPriceSet: { shopMoney: { amount: string } } | null;
   totalDiscountsSet: { shopMoney: { amount: string } } | null;
   totalShippingPriceSet: { shopMoney: { amount: string } } | null;
+  /** Só para casar pedido pago à mão com a cobrança na Pagar.me. */
+  email?: string | null;
   transactions: Array<{
     processedAt: string | null;
     kind: string;
@@ -346,6 +348,7 @@ const ORDERS_QUERY = `
         createdAt
         cancelledAt
         displayFinancialStatus
+        email
         tags
         discountCodes
         app { name }
