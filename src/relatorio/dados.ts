@@ -200,7 +200,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
     ),
     opcional("patrimônio", () => patrimonioDoDia()),
-    opcional("encalhe", () => estoqueParado(periodo)),
+    opcional("encalhe", () => estoqueParado(dia)),
     opcional("pagbank", () => conferirPagBank(dia)),
     opcional("mercado pago", () => conferirMercadoPago(dia)),
     opcional("pagos à mão", () => conferirPagosAMao(dia)),

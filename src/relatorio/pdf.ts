@@ -1398,62 +1398,106 @@ function secaoProdutos(doc: Doc, d: DadosRelatorio) {
  */
 function secaoEncalhe(doc: Doc, d: DadosRelatorio) {
   const e = d.encalhe;
-  if (!e || e.itens.length === 0) return;
+  if (!e) return;
 
   titulo(doc, "Estoque parado");
 
-  const parado = e.semGiro.custo + e.excesso.custo;
   linha(
     doc,
-    "Custo parado",
-    dinheiro(parado),
-    `${e.custoNaLoja > 0 ? pct(parado / e.custoNaLoja) : "—"} do custo em estoque · ` +
-      `${numero(e.semGiro.unidades + e.excesso.unidades)} peças além de 90 dias de venda`,
+    "Produtos parados",
+    numero(e.produtos),
+    `${numero(e.minimoDeEstoque)}+ peças, menos de ${numero(e.maximoPorDia)} vendas por dia em ` +
+      `${numero(e.dias)} dias, e cadastrado há mais de ${numero(e.idadeMinima)} dias`,
+    e.produtos > 0 ? RUIM : BOM,
+  );
+  if (e.produtos === 0) {
+    paragrafo(
+      doc,
+      "Nenhum produto se enquadrou nas duas regras hoje. Elas descrevem capital " +
+        "preso, não giro lento: grade de fim de coleção com pouco estoque não entra.",
+      TINTA3,
+    );
+    return;
+  }
+
+  linha(
+    doc,
+    "Peças paradas",
+    numero(e.unidades),
+    `${e.unidadesNaLoja > 0 ? pct(e.unidades / e.unidadesNaLoja) : "—"} das peças no site`,
+  );
+  linha(
+    doc,
+    "Custo preso",
+    dinheiro(e.custo),
+    `${e.custoNaLoja > 0 ? pct(e.custo / e.custoNaLoja) : "—"} do custo em estoque`,
     RUIM,
   );
+  linha(
+    doc,
+    " além de 90 dias de venda",
+    dinheiro(e.custoDoExcesso),
+    "o que dá para liberar sem criar ruptura",
+  );
+  if (e.novosDemais > 0) {
+    linha(
+      doc,
+      " fora por serem novos",
+      numero(e.novosDemais),
+      "estoque cheio e venda pequena é lançamento, não encalhe",
+      TINTA3,
+    );
+  }
+  if (e.semExcesso > 0) {
+    linha(
+      doc,
+      " com cobertura saudável",
+      numero(e.semExcesso),
+      "passam na regra por pouco, mas o estoque cabe em 90 dias",
+      TINTA3,
+    );
+  }
   if (e.semGiro.produtos > 0) {
     linha(
       doc,
-      " sem vender há 15 dias",
+      " sem vender nenhuma peça",
       numero(e.semGiro.produtos),
-      `${numero(e.semGiro.unidades)} peças · ${dinheiro(e.semGiro.custo)}`,
+      `${numero(e.semGiro.unidades)} peças`,
       RUIM,
     );
   }
-  linha(
-    doc,
-    " com estoque demais",
-    numero(e.excesso.produtos),
-    `${numero(e.excesso.unidades)} peças · ${dinheiro(e.excesso.custo)}`,
-  );
 
   tabela(
     doc,
-    ["Peça", "Estoque", "Vendeu 15d", "Acaba em", "Excesso", "Custo parado"],
+    ["Peça", "Estoque", "Venda/dia", "Acaba em", "Excesso", "Custo do excesso"],
     e.itens
       .slice(0, 12)
       .map((i) => [
         i.titulo,
         numero(i.unidades),
-        numero(i.vendidas15d),
+        numero(i.porDia, 1),
         i.diasParaAcabar === null
           ? "nunca"
           : `${numero(Math.round(i.diasParaAcabar))} d`,
         numero(i.excesso),
         i.custoDoExcesso !== null ? dinheiro(i.custoDoExcesso) : "sem custo",
       ]),
-    [LARGURA - 350, 60, 70, 65, 60, 95],
+    [LARGURA - 355, 60, 65, 65, 60, 105],
     ["left", "right", "right", "right", "right", "right"],
   );
 
   paragrafo(
     doc,
-    "O que conta aqui não é cobertura alta, é excesso: quanto de estoque existe ACIMA do que 90 " +
-      "dias de venda consumiriam. A primeira versão marcava os próprios campeões como encalhados " +
-      "— o Blazer Las Vegas vende 650 peças em quinze dias e tem estoque fundo, o que é escolha, " +
-      "não problema. Medindo o excesso, ele quase some da lista e sobra quem realmente não gira. " +
-      "A régua de venda é a mesma da cobertura dos campeões, para os dois blocos não discordarem. " +
-      "Produto sem corte no Corte Pro entra sem custo, então o total é piso.",
+    `As três regras: ${numero(e.minimoDeEstoque)} peças ou mais em estoque, menos de ` +
+      `${numero(e.maximoPorDia)} vendas por dia na média de ${numero(e.dias)} dias, e cadastro com ` +
+      `mais de ${numero(e.idadeMinima)} dias. Juntas elas ` +
+      "descrevem capital preso, não giro lento — grade de fim de coleção com pouco estoque fica " +
+      "de fora de propósito. A ordem é pelo custo do excesso, o estoque acima do que 90 dias de " +
+      "venda consumiriam: sem isso os próprios campeões apareciam aqui, porque estoque fundo em " +
+      "peça que vende é escolha, não problema. Um limite a saber: a Shopify informa o estoque de " +
+      "agora, não o dos últimos 30 dias. A regra da idade cobre o produto que nem existia, mas " +
+      "não a reposição que chegou esta semana num modelo antigo. Gravar o estoque todo dia " +
+      "resolve isso em um mês.",
     TINTA3,
   );
 }

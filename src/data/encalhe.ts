@@ -1,38 +1,49 @@
 /**
- * O outro lado do estoque: o que não vende.
+ * O outro lado do estoque: o que não gira.
  *
- * O bloco dos campeões responde "o que está acabando". Ninguém respondia "o
- * que está parado", e é ali que o capital some sem fazer barulho: peça sem
- * giro não gera alerta, não aparece no topo de lista nenhuma, e continua
- * ocupando dinheiro e galpão indefinidamente. Em 17/09/2026 eram 35.491 peças
- * no site e R$ 2,18 milhões de custo — basta uma fatia disso estar imóvel para
- * valer mais que qualquer otimização de campanha.
+ * O bloco dos campeões responde "o que está acabando". Ninguém respondia "o que
+ * está parado", e é ali que o capital some sem fazer barulho: peça sem giro não
+ * dispara alerta, não aparece no topo de lista nenhuma, e segue ocupando
+ * dinheiro e galpão indefinidamente.
  *
- * A régua é a venda dos últimos 15 dias, a mesma da cobertura, para que os dois
- * blocos não discordem. Duas situações, e elas são diferentes:
+ * As duas regras são do Luis, e juntas elas descrevem estoque parado de
+ * verdade:
  *
- *  - **sem giro**: nenhuma unidade vendida na janela. É o caso grave.
- *  - **excesso**: vende, mas tem estoque muito além do que o ritmo consome.
+ *  1. **250 peças ou mais**, mantidas nos últimos 30 dias. Abaixo disso, giro
+ *     lento é grade normal de fim de coleção, não capital preso.
+ *  2. **menos de 7 unidades por dia**, na média de 30 dias. Esse é o piso do
+ *     que a operação considera um produto vivo.
+ *  3. **cadastrado há mais de 30 dias**. Produto recém-lançado nasce com
+ *     estoque cheio e venda pequena — é lançamento, não encalhe. Sem esta
+ *     regra, toda coleção nova entraria na lista no mês seguinte à estreia.
  *
- * A primeira régua que tentei — "mais de 90 dias de cobertura" — marcava o
- * Blazer Las Vegas e a Calça Barcelona, os dois campeões do dia, como
- * encalhados. Não estavam: vendem 650 e 835 peças em 15 dias, só têm estoque
- * fundo. Nessa régua 77% do estoque da loja virava alerta, e alerta que pega
- * tudo não pega nada.
+ * Uma limitação que precisa estar escrita: a Shopify informa o estoque de
+ * AGORA, não o histórico. "Manteve 250 peças nos últimos 30 dias" é lido como
+ * "tem 250 peças hoje e vendeu pouco no período" — o que é quase sempre a mesma
+ * coisa, já que vender pouco não derruba estoque. A regra da idade do cadastro
+ * cobre o caso mais óbvio (produto que nem existia há 30 dias), mas não o corte
+ * de reposição que chegou esta semana num produto antigo. Para isso só serve
+ * histórico: gravar o estoque todo dia a partir de hoje resolve em um mês.
  *
- * O que separa de verdade não é a cobertura, é o **excesso**: quanto de estoque
- * existe ACIMA do que 90 dias de venda consumiriam. O campeão com 109 dias tem
- * excesso quase nulo; a peça com 2.432 dias tem excesso de quase tudo. E o que
- * ordena é o custo desse excesso, não a quantidade: 50 blazers prendem mais
- * dinheiro que 300 regatas.
+ * O que ordena a lista é o custo do excesso, não a quantidade: 50 blazers
+ * prendem mais dinheiro que 300 regatas. Excesso é o estoque acima do que 90
+ * dias de venda consumiriam — sem ele, os próprios campeões apareciam aqui, e
+ * alerta que pega tudo não pega nada.
  */
-import { estoqueDaLoja, type PeriodoDeVendas } from "./shopify.js";
+import { estoqueDaLoja, unidadesVendidasEm } from "./shopify.js";
 import { tabelaDeCusto } from "./patrimonio.js";
 
-/** Acima disso, o estoque atual demora demais para virar dinheiro. */
+/** Regra do Luis: abaixo disso não é capital preso, é grade normal. */
+const MINIMO_DE_ESTOQUE = 250;
+/** Regra do Luis: o piso do que a operação considera um produto vivo. */
+const MAXIMO_POR_DIA = 7;
+/** Regra do Luis: produto novo não está parado, está estreando. */
+const IDADE_MINIMA_EM_DIAS = 30;
+/** A janela das regras. */
+export const DIAS_DA_JANELA = 30;
 
 /**
- * Cobertura considerada saudável. Estoque além disso é o excesso.
+ * Cobertura considerada saudável, usada só para medir o excesso em reais.
  *
  * 90 dias é o ciclo da L&F: corte, oficina, caseado e chegada ao galpão levam
  * semanas, então estoque curto demais vira ruptura. O que passa disso já não
@@ -40,49 +51,73 @@ import { tabelaDeCusto } from "./patrimonio.js";
  */
 const DIAS_ALVO = 90;
 
-export type SituacaoDeGiro = "sem-giro" | "excesso";
-
 export interface Encalhado {
   titulo: string;
   unidades: number;
   /** A preço de etiqueta. */
   valorDeVenda: number;
-  /** Custo parado. `null` quando o modelo não tem corte no Corte Pro. */
+  /** Custo do estoque inteiro. `null` quando o modelo não tem corte no Corte Pro. */
   custo: number | null;
-  vendidas15d: number;
-  /** Dias para o estoque acabar no ritmo da janela. `null` quando não vende. */
+  vendidas: number;
+  /** Média diária na janela de 30 dias. */
+  porDia: number;
+  /** Dias para o estoque acabar nesse ritmo. `null` quando não vende. */
   diasParaAcabar: number | null;
   /** Peças acima do que 90 dias de venda consumiriam. */
   excesso: number;
   /** O custo dessas peças — é este número que importa. */
   custoDoExcesso: number | null;
-  situacao: SituacaoDeGiro;
+  /** Não vendeu nenhuma unidade na janela. */
+  semGiro: boolean;
 }
 
 export interface Encalhe {
   itens: Encalhado[];
-  semGiro: { produtos: number; unidades: number; custo: number };
-  excesso: { produtos: number; unidades: number; custo: number };
-  /** Quanto do estoque total está parado, para dar escala ao número. */
+  produtos: number;
+  unidades: number;
+  /** Custo do estoque inteiro dos produtos que caíram na regra. */
+  custo: number;
+  /** Custo só do excesso — o que dá para liberar sem criar ruptura. */
+  custoDoExcesso: number;
+  semGiro: { produtos: number; unidades: number };
+  /**
+   * Produtos que passam nas duas regras mas têm cobertura saudável mesmo assim.
+   *
+   * Acontece por aritmética: 250 peças vendendo 6,9 por dia dão 36 dias de
+   * cobertura, que é pouco, não muito. Eles entram na contagem porque a regra é
+   * a regra, mas não são capital preso, e o relatório precisa dizer quantos são
+   * para o total não ser lido como se tudo ali estivesse parado.
+   */
+  semExcesso: number;
+  /** Quanto do estoque total isso representa, para dar escala. */
   unidadesNaLoja: number;
   custoNaLoja: number;
-  /** Produtos sem custo no Corte Pro: o total parado é piso, não valor exato. */
+  /** Produtos sem custo no Corte Pro: o total é piso, não valor exato. */
   produtosSemCusto: number;
+  dias: number;
+  minimoDeEstoque: number;
+  maximoPorDia: number;
+  idadeMinima: number;
+  /** Produtos que passariam nas outras regras mas são novos demais. */
+  novosDemais: number;
 }
 
-export async function estoqueParado(
-  periodo: PeriodoDeVendas,
-): Promise<Encalhe> {
-  const [estoque, custoDe] = await Promise.all([
+export async function estoqueParado(ate: string): Promise<Encalhe> {
+  const inicio = new Date(`${ate}T12:00:00-03:00`);
+  inicio.setDate(inicio.getDate() - (DIAS_DA_JANELA - 1));
+  const de = inicio.toISOString().slice(0, 10);
+
+  const [estoque, custoDe, vendidasPorProduto] = await Promise.all([
     estoqueDaLoja(),
     tabelaDeCusto(),
+    unidadesVendidasEm(de, ate),
   ]);
 
-  const dias = Math.max(1, periodo.diasComVenda);
   const itens: Encalhado[] = [];
   let unidadesNaLoja = 0;
   let custoNaLoja = 0;
   let produtosSemCusto = 0;
+  let novosDemais = 0;
 
   for (const item of estoque) {
     unidadesNaLoja += item.unidades;
@@ -91,26 +126,34 @@ export async function estoqueParado(
     if (custo === null) produtosSemCusto++;
     else custoNaLoja += custo;
 
-    if (item.unidades <= 0) continue;
+    if (item.unidades < MINIMO_DE_ESTOQUE) continue;
 
-    const vendidas15d =
-      periodo.unidadesPorProduto.get(item.titulo)?.unidades ?? 0;
-    const porDia = vendidas15d / dias;
+    const vendidas = vendidasPorProduto.get(item.titulo) ?? 0;
+    const porDia = vendidas / DIAS_DA_JANELA;
+    if (porDia >= MAXIMO_POR_DIA) continue;
+
+    // Lançamento nasce com estoque cheio e venda pequena. Sem esta regra, toda
+    // coleção nova cairia aqui no mês seguinte à estreia.
+    const idade = (Date.now() - new Date(item.criadoEm).getTime()) / 86_400_000;
+    if (idade < IDADE_MINIMA_EM_DIAS) {
+      novosDemais++;
+      continue;
+    }
+
     const diasParaAcabar = porDia > 0 ? item.unidades / porDia : null;
-
     const excesso = Math.max(0, Math.round(item.unidades - porDia * DIAS_ALVO));
-    if (excesso === 0) continue;
 
     itens.push({
       titulo: item.titulo,
       unidades: item.unidades,
       valorDeVenda: item.valorDeVenda,
       custo,
-      vendidas15d,
+      vendidas,
+      porDia,
       diasParaAcabar,
       excesso,
       custoDoExcesso: unitario !== undefined ? unitario * excesso : null,
-      situacao: vendidas15d === 0 ? "sem-giro" : "excesso",
+      semGiro: vendidas === 0,
     });
   }
 
@@ -118,21 +161,26 @@ export async function estoqueParado(
   // fim: ele não pode competir por um número que não temos.
   itens.sort((a, b) => (b.custoDoExcesso ?? -1) - (a.custoDoExcesso ?? -1));
 
-  const soma = (s: SituacaoDeGiro) => {
-    const desses = itens.filter((i) => i.situacao === s);
-    return {
-      produtos: desses.length,
-      unidades: desses.reduce((t, i) => t + i.excesso, 0),
-      custo: desses.reduce((t, i) => t + (i.custoDoExcesso ?? 0), 0),
-    };
-  };
+  const semGiro = itens.filter((i) => i.semGiro);
 
   return {
     itens,
-    semGiro: soma("sem-giro"),
-    excesso: soma("excesso"),
+    produtos: itens.length,
+    unidades: itens.reduce((t, i) => t + i.unidades, 0),
+    custo: itens.reduce((t, i) => t + (i.custo ?? 0), 0),
+    custoDoExcesso: itens.reduce((t, i) => t + (i.custoDoExcesso ?? 0), 0),
+    semGiro: {
+      produtos: semGiro.length,
+      unidades: semGiro.reduce((t, i) => t + i.unidades, 0),
+    },
+    semExcesso: itens.filter((i) => i.excesso === 0).length,
     unidadesNaLoja,
     custoNaLoja,
     produtosSemCusto,
+    dias: DIAS_DA_JANELA,
+    minimoDeEstoque: MINIMO_DE_ESTOQUE,
+    maximoPorDia: MAXIMO_POR_DIA,
+    idadeMinima: IDADE_MINIMA_EM_DIAS,
+    novosDemais,
   };
 }

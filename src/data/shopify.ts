@@ -1325,6 +1325,8 @@ export interface ItemDeEstoque {
   titulo: string;
   unidades: number;
   valorDeVenda: number;
+  /** Quando o produto foi cadastrado. Produto novo não pode estar "parado". */
+  criadoEm: string;
 }
 
 /**
@@ -1341,6 +1343,7 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
       nodes: Array<{
         id: string;
         title: string;
+        createdAt: string;
         variants: {
           nodes: Array<{
             price: string | null;
@@ -1358,6 +1361,7 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
         nodes {
           id
           title
+          createdAt
           variants(first: 100) { nodes { price inventoryQuantity } }
         }
         pageInfo { hasNextPage endCursor }
@@ -1385,6 +1389,7 @@ export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
           titulo: p.title,
           unidades,
           valorDeVenda,
+          criadoEm: p.createdAt,
         });
     }
     cursor = d.products.pageInfo.hasNextPage
@@ -1948,6 +1953,62 @@ export async function comentariosDePedidos(
         .filter(Boolean);
       fora.set(o.name, comentarios);
     }
+  }
+
+  return fora;
+}
+
+/**
+ * Unidades vendidas por produto numa janela longa, com uma busca enxuta.
+ *
+ * Existe separada de `periodoDeVendas` por causa do custo: aquela traz o pedido
+ * inteiro — transações, descontos, cliente, frete — porque precisa montar o
+ * resumo do dia. Para saber quantas peças de cada modelo saíram em 30 dias,
+ * nada disso é necessário, e pedir tudo dobraria o consumo do balde da Shopify
+ * sem usar quase nada do que voltasse.
+ *
+ * Conta todo pedido não cancelado, igual à cobertura: troca, seeding e Pix
+ * ainda não compensado tiram peça da prateleira do mesmo jeito.
+ */
+export async function unidadesVendidasEm(
+  de: string,
+  ate: string,
+): Promise<Map<string, number>> {
+  interface Pagina {
+    orders: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{
+        cancelledAt: string | null;
+        lineItems: { nodes: Array<{ title: string; quantity: number }> };
+      }>;
+    };
+  }
+
+  const query = `query($q: String!, $cursor: String) {
+    orders(first: 250, query: $q, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        cancelledAt
+        lineItems(first: 50) { nodes { title quantity } }
+      }
+    }
+  }`;
+
+  const busca = `created_at:>="${de}T00:00:00-03:00" created_at:<="${ate}T23:59:59-03:00"`;
+
+  const fora = new Map<string, number>();
+  let cursor: string | null = null;
+
+  for (let pagina = 0; pagina < 60; pagina++) {
+    const r: Pagina = await admin<Pagina>(query, { q: busca, cursor });
+    for (const p of r.orders.nodes) {
+      if (p.cancelledAt) continue;
+      for (const item of p.lineItems.nodes) {
+        fora.set(item.title, (fora.get(item.title) ?? 0) + item.quantity);
+      }
+    }
+    if (!r.orders.pageInfo.hasNextPage) break;
+    cursor = r.orders.pageInfo.endCursor;
   }
 
   return fora;
