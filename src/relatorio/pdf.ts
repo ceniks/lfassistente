@@ -1221,10 +1221,34 @@ function secaoOperacao(doc: Doc, d: DadosRelatorio) {
   }
 }
 
+/**
+ * Tira do texto o que a Helvetica do PDFKit não sabe desenhar.
+ *
+ * A fonte usa WinAnsi, que não tem emoji: o "📊" da síntese saía como "&þ" no
+ * meio da primeira linha. E o modelo escreve em markdown, então os asteriscos
+ * de negrito apareciam literais. Nenhum dos dois é conteúdo — são marcas de
+ * formatação que o PDF não usa.
+ */
+export function limparParaPdf(texto: string): string {
+  return texto
+    .replace(/\*\*/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    // Fora da faixa Latin-1 sobram emoji e símbolos que viram lixo visual. As
+    // exceções são a pontuação tipográfica que o texto usa de verdade.
+    .replace(/[^\p{Script=Latin}\p{Nd}\s\p{P}\p{S}]/gu, '')
+    // O WinAnsi tem bullet, travessão, aspas curvas, reticências e euro — o
+    // resto fora do Latin-1 não existe na fonte e vira lixo.
+    .replace(/[^\u0000-\u00FF\u2010-\u2015\u2018-\u201D\u2022\u2026\u20AC]/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function secaoLeitura(doc: Doc, d: DadosRelatorio) {
   if (!d.leitura) return;
   titulo(doc, 'Leitura do dia');
-  doc.font('Helvetica').fontSize(9.5).fillColor(TINTA).text(d.leitura.trim(), MARGEM, doc.y, {
+  doc.font('Helvetica').fontSize(9.5).fillColor(TINTA).text(limparParaPdf(d.leitura), MARGEM, doc.y, {
     width: LARGURA,
     lineGap: 3,
     align: 'justify',
