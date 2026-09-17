@@ -38,6 +38,8 @@ export interface PedidoPagarme {
   nome: string;
   criadoEm: string;
   metodo: string;
+  /** Id da cobrança, ponte para os recebíveis que trazem a taxa. */
+  chargeId: string;
   parcelas: number | null;
 }
 
@@ -83,6 +85,7 @@ export async function pedidosDoDia(dia: string): Promise<PedidoPagarme[]> {
         nome: String(p.customer?.name ?? ""),
         criadoEm: String(p.created_at ?? ""),
         metodo: String(c?.payment_method ?? ""),
+        chargeId: String(c?.id ?? ""),
         parcelas: c?.last_transaction?.installments ?? null,
       });
     }
@@ -91,4 +94,72 @@ export async function pedidosDoDia(dia: string): Promise<PedidoPagarme[]> {
   }
 
   return fora;
+}
+
+/* ------------------------------------------------------------------------ *
+ * A taxa da Pagar.me mora em outro lugar, e por pouco eu não a usava errada.
+ *
+ * Na v5 a cobrança não traz taxa nenhuma. Na v1 a transação traz um campo
+ * `cost` — R$ 0,15 por transação — que parece a taxa e não é: é o custo de
+ * gateway. O desconto de verdade só aparece nos **payables**, os recebíveis:
+ * uma linha por parcela, cada uma com `fee`. Somando as parcelas de 16/09 dá
+ * R$ 206,92 sobre R$ 5.903,24, ou 3,51%.
+ *
+ * A ponte entre as duas gerações é o `gateway_id` da última transação da
+ * cobrança na v5, que é o id numérico da transação na v1. Sem ele sobraria
+ * filtrar a v1 por data — e a data lá é UTC, o que jogaria as vendas da noite
+ * para o dia seguinte.
+ * ------------------------------------------------------------------------ */
+
+const V1 = "https://api.pagar.me/1";
+
+export interface TaxaPagarme {
+  bruto: number;
+  taxa: number;
+  /** Só existe quando houve antecipação; hoje é zero. */
+  antecipacao: number;
+}
+
+async function idNaV1(chargeId: string): Promise<string | null> {
+  const r = await fetch(`${BASE}/charges/${chargeId}`, {
+    headers: { Authorization: autorizacao(), Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { last_transaction?: { gateway_id?: string } };
+  return j.last_transaction?.gateway_id ?? null;
+}
+
+async function recebiveis(
+  transacao: string,
+): Promise<Array<Record<string, any>>> {
+  const chave = config().PAGARME_TOKEN;
+  const r = await fetch(
+    `${V1}/payables?api_key=${encodeURIComponent(chave ?? "")}` +
+      `&transaction_id=${encodeURIComponent(transacao)}&count=100`,
+    { signal: AbortSignal.timeout(20_000) },
+  );
+  if (!r.ok) return [];
+  return (await r.json()) as Array<Record<string, any>>;
+}
+
+/** Taxa efetivamente descontada nas cobranças informadas. */
+export async function taxaDasCobrancas(
+  chargeIds: string[],
+): Promise<TaxaPagarme> {
+  let bruto = 0;
+  let taxa = 0;
+  let antecipacao = 0;
+
+  for (const id of chargeIds) {
+    const v1 = await idNaV1(id);
+    if (!v1) continue;
+    for (const p of await recebiveis(v1)) {
+      bruto += Number(p.amount ?? 0) / 100;
+      taxa += Number(p.fee ?? 0) / 100;
+      antecipacao += Number(p.anticipation_fee ?? 0) / 100;
+    }
+  }
+
+  return { bruto, taxa, antecipacao };
 }

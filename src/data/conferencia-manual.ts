@@ -22,7 +22,13 @@
  */
 import { categoria } from "./classify.js";
 import { pedidosPagosEm, type OrderNode } from "./shopify.js";
-import { pedidosDoDia, temPagarme, type PedidoPagarme } from "./pagarme.js";
+import {
+  pedidosDoDia,
+  taxaDasCobrancas,
+  temPagarme,
+  type PedidoPagarme,
+  type TaxaPagarme,
+} from "./pagarme.js";
 
 const TOLERANCIA = 0.01;
 
@@ -71,6 +77,8 @@ export interface PedidoManual {
   /** Valor sem contrapartida — em parcial, a diferença; em sem-rastro, tudo. */
   semRastro: number;
   codigo: string | null;
+  /** Ponte para os recebíveis, de onde sai a taxa. */
+  chargeId: string | null;
 }
 
 export interface ConferenciaManual {
@@ -87,6 +95,14 @@ export interface ConferenciaManual {
   orfaos: PedidoPagarme[];
   /** Pix declarado: cai direto na conta e só o extrato do PagBank confirma. */
   pixDireto: { quantidade: number; valor: number };
+  /**
+   * Taxa que a Pagar.me descontou nas cobranças casadas.
+   *
+   * Vem dos recebíveis, não da transação: o `cost` da transação são R$ 0,15 de
+   * gateway e não o desconto. Cobre só o que foi rastreado — o que ficou sem
+   * rastro não tem taxa somada, o que subestima a conta em poucos reais.
+   */
+  taxa: TaxaPagarme | null;
 }
 
 const capturasManuais = (p: OrderNode) =>
@@ -151,6 +167,7 @@ export async function conferirPagosAMao(
         encontrado: 0,
         semRastro: 0,
         codigo: null,
+        chargeId: null,
       };
     }
 
@@ -181,6 +198,7 @@ export async function conferirPagosAMao(
       encontrado,
       semRastro: Math.max(0, valor - encontrado),
       codigo: achado?.codigo ?? null,
+      chargeId: achado?.chargeId ?? null,
     };
   };
 
@@ -203,6 +221,9 @@ export async function conferirPagosAMao(
       valor: recusadas.reduce((s, p) => s + p.valor, 0),
     },
     orfaos: pagos.filter((c) => !usados.has(c.id)),
+    taxa: await taxaDasCobrancas(
+      vendas.filter((v) => v.chargeId).map((v) => v.chargeId as string),
+    ),
     pixDireto: {
       quantidade: vendas.filter((v) => v.situacao === "pix-direto").length,
       valor: vendas

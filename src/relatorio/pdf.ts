@@ -1010,6 +1010,14 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     ["left", "right", "left", "left", "right", "right"],
   );
 
+  if (m.taxa && m.taxa.taxa > 0) {
+    linha(
+      doc,
+      "Taxa cobrada de verdade",
+      dinheiro(m.taxa.taxa),
+      `${numero((m.taxa.taxa / (m.taxa.bruto || 1)) * 100, 2)}% do que passou pela Pagar.me`,
+    );
+  }
   if (m.pixDireto.quantidade > 0) {
     linha(
       doc,

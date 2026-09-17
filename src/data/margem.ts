@@ -157,7 +157,8 @@ export function margemDoDia(
    */
   const medida = taxaDoPagBank ?? null;
   const ehMedido = (g: string) =>
-    Boolean(medida) && /pagbank|pagseguro|mercado\s*pago/i.test(g);
+    Boolean(medida) &&
+    /pagbank|pagseguro|mercado\s*pago|pagar\.?me|^manual$/i.test(g.trim());
 
   const taxaEstimada = vendas.porGateway.reduce(
     (t, g) =>
