@@ -1,15 +1,38 @@
-import { type MediaDaHora, mediaPorHora, periodoDeVendas, trafegoDoDia, type ResumoVendas, type Trafego } from '../data/shopify.js';
-import { midiaDoDia, desempenhoPorNivel, type MidiaMeta, type LinhaMidia } from '../data/meta.js';
-import { midiaGoogleDoDia, temGoogleAds, type MidiaGoogle } from '../data/google.js';
-import { metaDoDia } from '../data/metas.js';
-import { producaoAtual, type Producao } from '../data/producao.js';
-import { atendimentoAtual, type Atendimento } from '../data/atendimento.js';
-import { reversasDoDia, temTroque, type Reversas } from '../data/troque.js';
-import { conferirEstorno, type Conciliacao } from '../data/conciliacao.js';
-import { novosVsRecorrentes, type NovosVsRecorrentes } from '../data/shopify.js';
-import { coberturaDosCampeoes, type Cobertura } from '../data/cobertura.js';
-import { patrimonioDoDia, type Patrimonio } from '../data/patrimonio.js';
-import { margemDoDia, type Margem } from '../data/margem.js';
+import {
+  type MediaDaHora,
+  mediaPorHora,
+  periodoDeVendas,
+  trafegoDoDia,
+  type ResumoVendas,
+  type Trafego,
+} from "../data/shopify.js";
+import {
+  midiaDoDia,
+  desempenhoPorNivel,
+  type MidiaMeta,
+  type LinhaMidia,
+} from "../data/meta.js";
+import {
+  midiaGoogleDoDia,
+  temGoogleAds,
+  type MidiaGoogle,
+} from "../data/google.js";
+import { metaDoDia } from "../data/metas.js";
+import { producaoAtual, type Producao } from "../data/producao.js";
+import { atendimentoAtual, type Atendimento } from "../data/atendimento.js";
+import { reversasDoDia, temTroque, type Reversas } from "../data/troque.js";
+import { conferirEstorno, type Conciliacao } from "../data/conciliacao.js";
+import {
+  novosVsRecorrentes,
+  type NovosVsRecorrentes,
+} from "../data/shopify.js";
+import { coberturaDosCampeoes, type Cobertura } from "../data/cobertura.js";
+import { patrimonioDoDia, type Patrimonio } from "../data/patrimonio.js";
+import { margemDoDia, type Margem } from "../data/margem.js";
+import {
+  conferirPagBank,
+  type ConferenciaPagBank,
+} from "../data/conferencia-pagbank.js";
 
 /**
  * O material do boletim completo.
@@ -39,7 +62,12 @@ export interface DadosRelatorio {
   vendas: ResumoVendas;
   /** Duas semanas terminando no dia, para a tendência. */
   serie: PontoSerie[];
-  media7d: { receita: number; pedidos: number; ticketMedio: number; descontoPct: number };
+  media7d: {
+    receita: number;
+    pedidos: number;
+    ticketMedio: number;
+    descontoPct: number;
+  };
   /** O mesmo dia da semana anterior — compara sábado com sábado. */
   semanaPassada: PontoSerie | null;
   trafego: Trafego;
@@ -55,6 +83,8 @@ export interface DadosRelatorio {
   clientes: NovosVsRecorrentes | null;
   cobertura: Cobertura[] | null;
   patrimonio: Patrimonio | null;
+  /** Conferência de cada venda do PagBank contra a cobrança no gateway. */
+  pagbank: ConferenciaPagBank | null;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
   media7dPorHora: MediaDaHora[];
   margem: Margem;
@@ -71,7 +101,10 @@ function diasAntes(dia: string, n: number): string[] {
 }
 
 /** Tolera falha de uma fonte: um bloco a menos é melhor que relatório nenhum. */
-async function opcional<T>(nome: string, f: () => Promise<T | null>): Promise<T | null> {
+async function opcional<T>(
+  nome: string,
+  f: () => Promise<T | null>,
+): Promise<T | null> {
   try {
     return await f();
   } catch (e) {
@@ -111,7 +144,8 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     .map((d) => vendasPorData.get(d))
     .filter((r): r is ResumoVendas => Boolean(r));
 
-  const somar = <T>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
+  const somar = <T>(xs: T[], f: (x: T) => number) =>
+    xs.reduce((s, x) => s + f(x), 0);
   const n = resumos.length || 1;
   const receitaTotal = somar(resumos, (r) => r.receita);
   const descontoTotal = somar(resumos, (r) => r.desconto.total);
@@ -130,23 +164,29 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     clientes,
     cobertura,
     patrimonio,
+    pagbank,
   ] = await Promise.all([
-      trafegoDoDia(dia),
-      Promise.all(seteDias.map((d) => trafegoDoDia(d))),
-      opcional('mídia', () => midiaDoDia(dia)),
-      opcional('campanhas', () => desempenhoPorNivel(dia, 'campaign')),
-      opcional('google', () => (temGoogleAds() ? midiaGoogleDoDia(dia) : Promise.resolve(null))),
-      opcional('metas', () => metaDoDia(dia)),
-      opcional('produção', () => producaoAtual()),
-      opcional('atendimento', () => atendimentoAtual(dia)),
-      opcional('trocas', () => (temTroque() ? reversasDoDia(dia) : Promise.resolve(null))),
-      opcional('estornos', () => conferirEstorno(dia, dia)),
-      opcional('clientes', () => novosVsRecorrentes(dia)),
-      opcional('cobertura', () =>
-        coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
-      ),
-      opcional('patrimônio', () => patrimonioDoDia()),
-    ]);
+    trafegoDoDia(dia),
+    Promise.all(seteDias.map((d) => trafegoDoDia(d))),
+    opcional("mídia", () => midiaDoDia(dia)),
+    opcional("campanhas", () => desempenhoPorNivel(dia, "campaign")),
+    opcional("google", () =>
+      temGoogleAds() ? midiaGoogleDoDia(dia) : Promise.resolve(null),
+    ),
+    opcional("metas", () => metaDoDia(dia)),
+    opcional("produção", () => producaoAtual()),
+    opcional("atendimento", () => atendimentoAtual(dia)),
+    opcional("trocas", () =>
+      temTroque() ? reversasDoDia(dia) : Promise.resolve(null),
+    ),
+    opcional("estornos", () => conferirEstorno(dia, dia)),
+    opcional("clientes", () => novosVsRecorrentes(dia)),
+    opcional("cobertura", () =>
+      coberturaDosCampeoes(vendasPorData.get(dia)!, periodo),
+    ),
+    opcional("patrimônio", () => patrimonioDoDia()),
+    opcional("pagbank", () => conferirPagBank(dia)),
+  ]);
 
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
   // sábado com a média que inclui terça esconde o padrão em vez de revelar.
@@ -162,7 +202,9 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
       pedidos: somar(resumos, (r) => r.pedidos) / n,
       ticketMedio: somar(resumos, (r) => r.ticketMedio) / n,
       descontoPct:
-        receitaTotal + descontoTotal > 0 ? descontoTotal / (receitaTotal + descontoTotal) : 0,
+        receitaTotal + descontoTotal > 0
+          ? descontoTotal / (receitaTotal + descontoTotal)
+          : 0,
     },
     semanaPassada: seteAtras,
     trafego,
@@ -182,7 +224,11 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     clientes,
     cobertura,
     patrimonio,
+    pagbank,
     media7dPorHora,
-    margem: margemDoDia(vendas, (midia?.valorPago ?? 0) + (google?.valorPago ?? 0)),
+    margem: margemDoDia(
+      vendas,
+      (midia?.valorPago ?? 0) + (google?.valorPago ?? 0),
+    ),
   };
 }

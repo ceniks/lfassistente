@@ -172,7 +172,7 @@ async function admin<T>(
  * Tipos
  * ------------------------------------------------------------------ */
 
-interface OrderNode extends PedidoClassificavel {
+export interface OrderNode extends PedidoClassificavel {
   id: string;
   createdAt: string;
   cancelledAt: string | null;
@@ -186,6 +186,14 @@ interface OrderNode extends PedidoClassificavel {
     kind: string;
     status: string;
     gateway?: string | null;
+    /**
+     * Identificador do pagamento do lado da Shopify. Vem também dentro de
+     * `receiptJson` como `payment_id`, e é o mesmo valor que o PagBank grava
+     * como `reference_id` da cobrança — é por ele que a conferência casa os
+     * dois lados.
+     */
+    paymentId?: string | null;
+    amountSet?: { shopMoney: { amount: string } } | null;
   }>;
   lineItems: {
     nodes: Array<{
@@ -345,7 +353,7 @@ const ORDERS_QUERY = `
         subtotalPriceSet { shopMoney { amount } }
         totalDiscountsSet { shopMoney { amount } }
         totalShippingPriceSet { shopMoney { amount } }
-        transactions(first: 10) { processedAt kind status gateway }
+        transactions(first: 10) { processedAt kind status gateway paymentId amountSet { shopMoney { amount } } }
         lineItems(first: 50) {
           nodes {
             title
