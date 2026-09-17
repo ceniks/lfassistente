@@ -25,7 +25,8 @@
     "boletim": "tsx --env-file-if-exists=.env src/cli/boletim.ts",
     "conferir-estorno": "tsx --env-file-if-exists=.env src/cli/conferir-estorno.ts",
     "conferir-estorno-pdf": "tsx --env-file-if-exists=.env src/cli/conferir-estorno-pdf.ts",
-    "pagbank-teste": "tsx --env-file-if-exists=.env src/cli/pagbank-teste.ts"
+    "pagbank-teste": "tsx --env-file-if-exists=.env src/cli/pagbank-teste.ts",
+    "pagarme-teste": "tsx --env-file-if-exists=.env src/cli/pagarme-teste.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",

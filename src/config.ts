@@ -131,6 +131,20 @@ const schema = z.object({
    * precisaria de credencial própria, então qualquer número daqui é parcial e
    * tem que ser rotulado como tal.
    */
+  /**
+   * Chave secreta da Pagar.me.
+   *
+   * Existe por causa dos pedidos pagos à mão: a atendente cria um rascunho,
+   * manda um link da Pagar.me e marca como pago na Shopify. Em 16/09 foram
+   * R$ 6.572 assim — 8% do faturamento — sem cobrança em gateway nenhum dos
+   * que o boletim conhecia. A conferência inversa do PagBank confirmou que o
+   * dinheiro não passou por lá.
+   *
+   * A amarração não pode ser por id: pedido manual não tem `payment_id`. É por
+   * valor, cliente e janela de data — menos exato que o PagBank, e suficiente
+   * porque são poucos por dia.
+   */
+  PAGARME_TOKEN: opcional(z.string()),
   PAGBANK_TOKEN: opcional(z.string()),
   /**
    * Token da API antiga (ws.pagseguro.uol.com.br).
