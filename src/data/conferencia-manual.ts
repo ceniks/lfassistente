@@ -26,13 +26,45 @@ import { pedidosDoDia, temPagarme, type PedidoPagarme } from "./pagarme.js";
 
 const TOLERANCIA = 0.01;
 
-export type SituacaoManual = "exato" | "parcial" | "sem-rastro";
+/**
+ * Gateways que significam "alguém marcou como pago", não "o dinheiro passou
+ * por aqui".
+ *
+ * `manual` é o genérico da Shopify, usado até 17/09/2026. A partir dali
+ * existem métodos manuais nomeados — `pagar.me` e `pix` — e é isso que muda
+ * tudo: a forma de pagamento deixa de ser comentário livre e vira dado, então
+ * dá para cobrar rastro só de quem tem onde ser rastreado. A lista é explícita
+ * de propósito: gateway novo e desconhecido não deve ser silenciosamente
+ * tratado como manual.
+ */
+export const MANUAIS = new Set([
+  "manual",
+  "pagar.me",
+  "pagarme",
+  "pix",
+  "dinheiro",
+  "transferencia",
+]);
+
+export const normalizarGateway = (g: string) =>
+  g
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+/** Pix cai direto na conta e não passa por gateway: não há o que consultar. */
+const ehPixDireto = (g: string) => normalizarGateway(g) === "pix";
+
+export type SituacaoManual = "exato" | "parcial" | "sem-rastro" | "pix-direto";
 
 export interface PedidoManual {
   pedido: string;
   valor: number;
   categoria: string;
   email: string;
+  /** Como a atendente declarou o pagamento: "pagar.me", "pix", ou "manual". */
+  metodo: string;
   situacao: SituacaoManual;
   /** Quanto foi encontrado na Pagar.me. */
   encontrado: number;
@@ -53,25 +85,33 @@ export interface ConferenciaManual {
   recusadas: { quantidade: number; valor: number };
   /** Pedido pago na Pagar.me que nenhum pedido manual da Shopify reivindicou. */
   orfaos: PedidoPagarme[];
+  /** Pix declarado: cai direto na conta e só o extrato do PagBank confirma. */
+  pixDireto: { quantidade: number; valor: number };
 }
 
-const ehManual = (p: OrderNode) =>
-  p.transactions.some(
+const capturasManuais = (p: OrderNode) =>
+  p.transactions.filter(
     (t) =>
       t.status === "SUCCESS" &&
       (t.kind === "SALE" || t.kind === "CAPTURE") &&
-      (t.gateway ?? "").trim() === "manual",
+      MANUAIS.has(normalizarGateway(t.gateway ?? "")),
   );
 
+const ehManual = (p: OrderNode) => capturasManuais(p).length > 0;
+
 const valorManual = (p: OrderNode) =>
-  p.transactions
-    .filter(
-      (t) =>
-        t.status === "SUCCESS" &&
-        (t.kind === "SALE" || t.kind === "CAPTURE") &&
-        (t.gateway ?? "").trim() === "manual",
-    )
-    .reduce((s, t) => s + Number(t.amountSet?.shopMoney?.amount ?? 0), 0);
+  capturasManuais(p).reduce(
+    (s, t) => s + Number(t.amountSet?.shopMoney?.amount ?? 0),
+    0,
+  );
+
+/** O método que a atendente escolheu, quando ela teve onde escolher. */
+const metodoDeclarado = (p: OrderNode) => {
+  const gs = [
+    ...new Set(capturasManuais(p).map((t) => (t.gateway ?? "").trim())),
+  ];
+  return gs.length === 1 ? gs[0] : gs.join(" + ");
+};
 
 export async function conferirPagosAMao(
   dia: string,
@@ -90,6 +130,29 @@ export async function conferirPagosAMao(
   const conferir = (p: OrderNode): PedidoManual => {
     const valor = valorManual(p);
     const email = (p.email ?? "").toLowerCase();
+    const metodo = metodoDeclarado(p);
+
+    /*
+     * Pix declarado cai direto na conta do PagBank, fora de qualquer gateway —
+     * confirmado: as transações do PagBank entre 10 e 16/09 são 100% cartão.
+     * Não existe API que confirme esse dinheiro, então marcá-lo como "sem
+     * rastro" confundiria "não verificado" com "suspeito" e encheria o
+     * relatório de vermelho que ninguém pode resolver. Ele tem situação
+     * própria e fica separado até existir acesso ao extrato da conta.
+     */
+    if (ehPixDireto(metodo)) {
+      return {
+        pedido: p.name,
+        valor,
+        categoria: categoria(p),
+        email,
+        metodo,
+        situacao: "pix-direto",
+        encontrado: 0,
+        semRastro: 0,
+        codigo: null,
+      };
+    }
 
     // Mesma cliente, ainda não reivindicado. O maior primeiro, para que um
     // pagamento cheio não seja preterido por um parcial do mesmo dia.
@@ -113,6 +176,7 @@ export async function conferirPagosAMao(
       valor,
       categoria: categoria(p),
       email,
+      metodo,
       situacao,
       encontrado,
       semRastro: Math.max(0, valor - encontrado),
@@ -139,5 +203,11 @@ export async function conferirPagosAMao(
       valor: recusadas.reduce((s, p) => s + p.valor, 0),
     },
     orfaos: pagos.filter((c) => !usados.has(c.id)),
+    pixDireto: {
+      quantidade: vendas.filter((v) => v.situacao === "pix-direto").length,
+      valor: vendas
+        .filter((v) => v.situacao === "pix-direto")
+        .reduce((s, v) => s + v.valor, 0),
+    },
   };
 }

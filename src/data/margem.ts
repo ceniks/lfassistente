@@ -69,6 +69,14 @@ function taxaDoGateway(gateway: string): number {
   const c = config();
   const g = gateway.toLowerCase();
 
+  /*
+   * Método manual nomeado, criado no admin em 17/09/2026. "pix" ali é Pix na
+   * conta, não Pix de gateway: não há taxa de adquirente nenhuma. Confundir os
+   * dois cobraria 0,99% de um dinheiro que chegou inteiro — e a distinção é o
+   * nome exato, porque "Mercado Pago Pix" também contém "pix".
+   */
+  if (g === "pix" || g === "dinheiro") return 0;
+
   if (g.includes("pix")) return c.TAXA_PIX_PCT / 100;
   if (g.includes("boleto")) return c.TAXA_BOLETO_PCT / 100;
   if (g.includes("débito") || g.includes("debito")) return 0;

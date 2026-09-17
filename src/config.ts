@@ -145,6 +145,15 @@ const schema = z.object({
    * porque são poucos por dia.
    */
   PAGARME_TOKEN: opcional(z.string()),
+  /**
+   * Access token de produção do Mercado Pago.
+   *
+   * É o gateway do Pix da loja — R$ 13.666 em 35 transações no dia 16/09, a
+   * última fatia grande ainda estimada. O PagBank e a Pagar.me já entram pela
+   * taxa cobrada; aqui ainda se aplica TAXA_PIX_PCT sobre o valor, o que só
+   * está certo enquanto a taxa do Pix não mudar nem variar.
+   */
+  MERCADOPAGO_TOKEN: opcional(z.string()),
   PAGBANK_TOKEN: opcional(z.string()),
   /**
    * Token da API antiga (ws.pagseguro.uol.com.br).

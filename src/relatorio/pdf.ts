@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import type { DadosRelatorio } from "./dados.js";
+import { MANUAIS, normalizarGateway } from "../data/conferencia-manual.js";
 import {
   dinheiro,
   dinheiroExato,
@@ -873,9 +874,9 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
   );
 
   for (const g of c.foraDoAlcance) {
-    // "manual" tem bloco próprio logo abaixo quando a Pagar.me está ligada.
-    if (g.gateway === "manual" && d.manual) continue;
-    const naMao = g.gateway === "manual";
+    // Método manual tem bloco próprio logo abaixo quando a Pagar.me está ligada.
+    const naMao = MANUAIS.has(normalizarGateway(g.gateway));
+    if (naMao && d.manual) continue;
     linha(
       doc,
       naMao ? "Marcado como pago à mão" : `Fora da conferência: ${g.gateway}`,
@@ -934,6 +935,14 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
  * exatidão: o casamento é por valor e cliente, não por identificador, porque
  * pedido manual não tem identificador de pagamento.
  */
+/** Rótulo de cada situação. "não verificável" não é acusação — ver o parágrafo. */
+const SITUACAO: Record<string, string> = {
+  exato: "bateu",
+  parcial: "pago em parte",
+  "sem-rastro": "sem rastro",
+  "pix-direto": "não verificável",
+};
+
 function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
   const m = d.manual;
   if (!m || m.vendas.length === 0) return;
@@ -967,21 +976,28 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
 
   tabela(
     doc,
-    ["Pedido", "Valor", "Situação", "Na Pagar.me", "Sem rastro"],
+    ["Pedido", "Valor", "Método", "Situação", "Na Pagar.me", "Sem rastro"],
     m.vendas.map((v) => [
       v.pedido,
       dinheiro(v.valor),
-      v.situacao === "exato"
-        ? "bateu"
-        : v.situacao === "parcial"
-          ? "pago em parte"
-          : "sem rastro",
+      v.metodo,
+      SITUACAO[v.situacao] ?? v.situacao,
       v.encontrado > 0 ? dinheiro(v.encontrado) : "-",
       v.semRastro > 0 ? dinheiro(v.semRastro) : "-",
     ]),
-    [70, 90, 100, 100, LARGURA - 360],
-    ["left", "right", "left", "right", "right"],
+    [70, 80, 90, 95, 90, LARGURA - 425],
+    ["left", "right", "left", "left", "right", "right"],
   );
+
+  if (m.pixDireto.quantidade > 0) {
+    linha(
+      doc,
+      "Pix direto na conta",
+      dinheiro(m.pixDireto.valor),
+      `${numero(m.pixDireto.quantidade)} pedido(s) — só o extrato do PagBank confirma`,
+      TINTA3,
+    );
+  }
 
   if (m.outros.quantidade > 0) {
     linha(
@@ -1018,7 +1034,10 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
       'fraca que a do gateway, de propósito declarado. "Pago em parte" quase sempre é pagamento ' +
       "dividido — parte no link, parte em Pix — e o que fica sem rastro é a parte que ninguém " +
       "consegue verificar. Nomear os métodos de pagamento manuais na Shopify (Pagar.me, Pix, " +
-      "dinheiro) transformaria isso em dado e tornaria a conferência exata.",
+      "dinheiro) transformaria isso em dado e tornaria a conferência exata. " +
+      "Pix declarado não conta como sem rastro: ele cai na conta e não passa por gateway " +
+      "nenhum — entre 10 e 16/09, 100% das transações do PagBank foram cartão —, então fica " +
+      "como não verificável até haver acesso ao extrato. Não verificado não é suspeito.",
     TINTA3,
   );
 }
