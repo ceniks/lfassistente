@@ -251,11 +251,14 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
             taxa:
               (pagbank?.taxaReal ?? 0) +
               (mercadopago?.taxaReal ?? 0) +
-              (manual?.taxa?.taxa ?? 0),
+              (manual?.taxa?.taxa ?? 0) +
+              (manual?.taxa?.antecipacao ?? 0) +
+              (manual?.taxa?.antecipacaoPrevista ?? 0),
             receita:
               (pagbank?.valorConferido ?? 0) +
               (mercadopago?.valorConferido ?? 0) +
               (manual?.rastreado ?? 0),
+            projetada: manual?.taxa?.antecipacaoPrevista ?? 0,
           }
         : null,
     ),

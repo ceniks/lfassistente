@@ -115,9 +115,56 @@ const V1 = "https://api.pagar.me/1";
 
 export interface TaxaPagarme {
   bruto: number;
+  /** MDR: o desconto do dia da venda, medido nos recebíveis. */
   taxa: number;
-  /** Só existe quando houve antecipação; hoje é zero. */
+  /** Antecipação já cobrada nestes recebíveis. Zero no dia da venda. */
   antecipacao: number;
+  /**
+   * Antecipação que ainda será cobrada, estimada.
+   *
+   * Não é palpite: a taxa foi medida em 1.526 recebíveis antecipados e é
+   * 1,93% ao mês, linear nos dias adiantados — 2,12% em 33 dias, 3,92% em 61,
+   * 5,85% em 91, 7,91% em 123. O que não dá para medir no dia da venda é o
+   * valor, porque a cobrança só acontece quando a antecipação ocorre, cerca de
+   * 30 dias depois. Sem esta linha a venda parcelada parece custar 3,5% quando
+   * custa o dobro.
+   */
+  antecipacaoPrevista: number;
+}
+
+/**
+ * Custo de antecipação por mês adiantado, medido nos próprios recebíveis.
+ *
+ * Ver `TaxaPagarme.antecipacaoPrevista`. Fica aqui como constante e não como
+ * parâmetro de ambiente porque é medição, não escolha — e porque se a Pagar.me
+ * mudar, a conta dos recebíveis pagos denuncia na hora.
+ */
+export const ANTECIPACAO_AO_MES = 1.93;
+
+/**
+ * Antecipar a parcela k adianta cerca de 30 × (k−1) dias, então a média por
+ * venda é (parcelas − 1) / 2 meses. Em 8x isso dá 3,5 meses: 6,8% além do MDR.
+ */
+export function antecipacaoDe(bruto: number, parcelas: number): number {
+  if (parcelas <= 1) return 0;
+  return bruto * (ANTECIPACAO_AO_MES / 100) * ((parcelas - 1) / 2);
+}
+
+async function detalheDaCobranca(
+  chargeId: string,
+): Promise<{ v1: string | null; parcelas: number }> {
+  const r = await fetch(`${BASE}/charges/${chargeId}`, {
+    headers: { Authorization: autorizacao(), Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) return { v1: null, parcelas: 1 };
+  const j = (await r.json()) as {
+    last_transaction?: { gateway_id?: string; installments?: number };
+  };
+  return {
+    v1: j.last_transaction?.gateway_id ?? null,
+    parcelas: j.last_transaction?.installments ?? 1,
+  };
 }
 
 async function idNaV1(chargeId: string): Promise<string | null> {
@@ -150,16 +197,29 @@ export async function taxaDasCobrancas(
   let bruto = 0;
   let taxa = 0;
   let antecipacao = 0;
+  let antecipacaoPrevista = 0;
 
   for (const id of chargeIds) {
-    const v1 = await idNaV1(id);
+    const { v1, parcelas } = await detalheDaCobranca(id);
     if (!v1) continue;
+
+    let brutoDaCobranca = 0;
     for (const p of await recebiveis(v1)) {
-      bruto += Number(p.amount ?? 0) / 100;
+      const valor = Number(p.amount ?? 0) / 100;
+      brutoDaCobranca += valor;
+      bruto += valor;
       taxa += Number(p.fee ?? 0) / 100;
       antecipacao += Number(p.anticipation_fee ?? 0) / 100;
     }
+    antecipacaoPrevista += antecipacaoDe(brutoDaCobranca, parcelas);
   }
 
-  return { bruto, taxa, antecipacao };
+  // Já cobrada tem precedência sobre prevista: onde a antecipação aconteceu,
+  // o valor real substitui a estimativa em vez de somar em cima dela.
+  return {
+    bruto,
+    taxa,
+    antecipacao,
+    antecipacaoPrevista: antecipacao > 0 ? 0 : antecipacaoPrevista,
+  };
 }

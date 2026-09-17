@@ -722,7 +722,10 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     "(-) Taxa de pagamento",
     dinheiro(m.taxaDePagamento),
     m.taxaMedida > 0
-      ? `${daReceita(m.taxaDePagamento)} da receita · ${dinheiro(m.taxaMedida)} lidos dos gateways`
+      ? `${daReceita(m.taxaDePagamento)} da receita · ${dinheiro(m.taxaMedida)} lidos dos gateways` +
+          (m.taxaProjetada > 0
+            ? ` · ${dinheiro(m.taxaProjetada)} de antecipação a cobrar`
+            : "")
       : `${daReceita(m.taxaDePagamento)} da receita · ` +
           `${numero(config().TAXA_CARTAO_PCT, 2)}% no cartão, ${numero(config().TAXA_PIX_PCT, 2)}% no Pix`,
   );
@@ -1010,13 +1013,33 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     ["left", "right", "left", "left", "right", "right"],
   );
 
-  if (m.taxa && m.taxa.taxa > 0) {
+  if (m.taxa && m.taxa.bruto > 0) {
+    const pctDe = (v: number) => numero((v / m.taxa!.bruto) * 100, 2);
+    const antecip = m.taxa.antecipacao + m.taxa.antecipacaoPrevista;
+
     linha(
       doc,
-      "Taxa cobrada de verdade",
+      "Taxa da Pagar.me",
       dinheiro(m.taxa.taxa),
-      `${numero((m.taxa.taxa / (m.taxa.bruto || 1)) * 100, 2)}% do que passou pela Pagar.me`,
+      `${pctDe(m.taxa.taxa)}% — desconto do dia da venda`,
     );
+    if (antecip > 0) {
+      linha(
+        doc,
+        "Antecipação",
+        dinheiro(antecip),
+        `${pctDe(antecip)}% — ${
+          m.taxa.antecipacao > 0 ? "já cobrada" : "a cobrar em cerca de 30 dias"
+        }, 1,93% ao mês por parcela adiantada`,
+        RUIM,
+      );
+      linha(
+        doc,
+        "Custo total na Pagar.me",
+        dinheiro(m.taxa.taxa + antecip),
+        `${pctDe(m.taxa.taxa + antecip)}% — contra 5,93% no PagBank`,
+      );
+    }
   }
   if (m.pixDireto.quantidade > 0) {
     linha(

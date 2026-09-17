@@ -30,6 +30,8 @@ export interface Margem {
   taxaDePagamento: number;
   /** Parte da taxa que foi lida do gateway, em reais. O resto é estimativa. */
   taxaMedida: number;
+  /** Antecipação da Pagar.me ainda não cobrada: medida na régua, prevista no valor. */
+  taxaProjetada: number;
   /** Receita coberta pela taxa medida — o quanto da conta deixou de ser chute. */
   receitaComTaxaMedida: number;
   /** Em quantas parcelas o cartão foi calculado — é parâmetro, não medição. */
@@ -95,7 +97,12 @@ function taxaDoGateway(gateway: string): number {
 export function margemDoDia(
   vendas: ResumoVendas,
   midia: number,
-  taxaDoPagBank?: { taxa: number; receita: number } | null,
+  taxaDoPagBank?: {
+    taxa: number;
+    receita: number;
+    /** Parte da taxa acima que ainda não foi cobrada, só projetada. */
+    projetada?: number;
+  } | null,
 ): Margem {
   const c = config();
   const custoDe = tabelaDeCusto();
@@ -187,7 +194,8 @@ export function margemDoDia(
     margemBruta,
     midia,
     taxaDePagamento,
-    taxaMedida: medida?.taxa ?? 0,
+    taxaMedida: (medida?.taxa ?? 0) - (medida?.projetada ?? 0),
+    taxaProjetada: medida?.projetada ?? 0,
     receitaComTaxaMedida: medida?.receita ?? 0,
     parcelasUsadas: c.TAXA_CARTAO_PCT > 0 ? 0 : c.PARCELAS_MEDIAS,
     taxaDaPlataforma,
