@@ -1013,34 +1013,24 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     ["left", "right", "left", "left", "right", "right"],
   );
 
+  /*
+   * Uma linha só, com o custo cheio.
+   *
+   * Separar MDR e antecipação servia para provar que a segunda existe — ela
+   * custa mais que a primeira e não aparecia em lugar nenhum. Provado, o que
+   * interessa no dia a dia é quanto a venda pela Pagar.me custa de verdade.
+   */
   if (m.taxa && m.taxa.bruto > 0) {
-    const pctDe = (v: number) => numero((v / m.taxa!.bruto) * 100, 2);
-    const antecip = m.taxa.antecipacao + m.taxa.antecipacaoPrevista;
-
+    const total = m.taxa.taxa + m.taxa.antecipacao + m.taxa.antecipacaoPrevista;
     linha(
       doc,
-      "Taxa da Pagar.me",
-      dinheiro(m.taxa.taxa),
-      `${pctDe(m.taxa.taxa)}% — desconto do dia da venda`,
+      "Taxa total da Pagar.me",
+      dinheiro(total),
+      `${numero((total / m.taxa.bruto) * 100, 2)}% — desconto mais antecipação, ` +
+        "contra 5,93% no PagBank",
     );
-    if (antecip > 0) {
-      linha(
-        doc,
-        "Antecipação",
-        dinheiro(antecip),
-        `${pctDe(antecip)}% — ${
-          m.taxa.antecipacao > 0 ? "já cobrada" : "a cobrar em cerca de 30 dias"
-        }, 1,93% ao mês por parcela adiantada`,
-        RUIM,
-      );
-      linha(
-        doc,
-        "Custo total na Pagar.me",
-        dinheiro(m.taxa.taxa + antecip),
-        `${pctDe(m.taxa.taxa + antecip)}% — contra 5,93% no PagBank`,
-      );
-    }
   }
+
   if (m.pixDireto.quantidade > 0) {
     linha(
       doc,
