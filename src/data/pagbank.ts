@@ -151,7 +151,7 @@ export interface TransacaoPagBank {
   referencia: string;
   codigo: string;
   data: string;
-  status: number;
+  status: string | number;
   bruto: number;
   taxa: number;
   liquido: number;

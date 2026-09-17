@@ -24,6 +24,7 @@
  * divergência.
  */
 import { pedidosPagosEm, type OrderNode } from "./shopify.js";
+import { pagamentosDoDia, temMercadoPago } from "./mercadopago.js";
 import {
   cobrancasPorReferencia,
   temPagBank,
@@ -56,6 +57,8 @@ export interface OrfaNoPagBank {
 }
 
 export interface ConferenciaPagBank {
+  /** Como o gateway se chama no relatório. */
+  nome: string;
   conferidas: number;
   valorConferido: number;
   ok: number;
@@ -145,19 +148,25 @@ export function conferir(l: Linha, t: TransacaoPagBank | null): Conferido {
   return { ...base, veredito: "ok" };
 }
 
-export async function conferirPagBank(
-  dia: string,
-): Promise<ConferenciaPagBank | null> {
-  if (!temPagBank()) return null;
-
-  const [pedidos, transacoes] = await Promise.all([
-    pedidosPagosEm(dia),
-    transacoesDoDia(dia),
-  ]);
-
+/**
+ * A conferência em si, com as duas listas já carregadas.
+ *
+ * Separada da busca porque PagBank e Mercado Pago são exatamente o mesmo
+ * problema: os dois amarram pelo identificador que a Shopify grava na
+ * transação — `payment_id` de um lado, `reference` ou `external_reference` do
+ * outro. Escrever duas versões garantiria que elas divergissem com o tempo.
+ */
+export function conferirContra(
+  nome: string,
+  pedidos: OrderNode[],
+  transacoes: TransacaoPagBank[],
+  ehDesteGateway: (g: string) => boolean,
+): ConferenciaPagBank {
   const linhas = linhasDe(pedidos);
-  const nossas = linhas.filter((l) => ehPagBank(l.gateway) && l.referencia);
-  const outras = linhas.filter((l) => !ehPagBank(l.gateway));
+  const nossas = linhas.filter(
+    (l) => ehDesteGateway(l.gateway) && l.referencia,
+  );
+  const outras = linhas.filter((l) => !ehDesteGateway(l.gateway));
 
   const porReferencia = new Map(transacoes.map((t) => [t.referencia, t]));
   const conferidas = nossas.map((l) =>
@@ -187,26 +196,6 @@ export async function conferirPagBank(
   const valorConferido = casadas.reduce((s, c) => s + c.valorShopify, 0);
   const taxaReal = casadas.reduce((s, c) => s + (c.transacao?.taxa ?? 0), 0);
 
-  /* --- parcelas: só a API nova informa, e vale pelo caixa --- */
-
-  const cobrancas = await cobrancasPorReferencia(
-    casadas.map((c) => c.referencia),
-  );
-  const porParcela = new Map<
-    number,
-    { pedidos: number; valor: number; taxa: number }
-  >();
-  for (const c of casadas) {
-    const n = (cobrancas.get(c.referencia) as Cobranca | null | undefined)
-      ?.parcelas;
-    if (!n) continue;
-    const a = porParcela.get(n) ?? { pedidos: 0, valor: 0, taxa: 0 };
-    a.pedidos += 1;
-    a.valor += c.valorShopify;
-    a.taxa += c.transacao?.taxa ?? 0;
-    porParcela.set(n, a);
-  }
-
   const porGateway = new Map<string, { pedidos: number; valor: number }>();
   for (const l of outras) {
     const a = porGateway.get(l.gateway) ?? { pedidos: 0, valor: 0 };
@@ -216,6 +205,7 @@ export async function conferirPagBank(
   }
 
   return {
+    nome,
     conferidas: conferidas.length,
     valorConferido,
     ok: casadas.length,
@@ -226,12 +216,72 @@ export async function conferirPagBank(
     foraDoAlcance: [...porGateway.entries()]
       .map(([gateway, a]) => ({ gateway, ...a }))
       .sort((x, y) => y.valor - x.valor),
-    parcelas: [...porParcela.entries()]
-      .map(([parcelas, a]) => ({ parcelas, ...a }))
-      .sort((x, y) => x.parcelas - y.parcelas),
+    parcelas: [],
     canceladas: {
       quantidade: canceladas.length,
       valor: canceladas.reduce((s, t) => s + t.bruto, 0),
     },
   };
+}
+
+/** Conferência do PagBank, incluindo o parcelamento, que só a API nova informa. */
+export async function conferirPagBank(
+  dia: string,
+): Promise<ConferenciaPagBank | null> {
+  if (!temPagBank()) return null;
+
+  const [pedidos, transacoes] = await Promise.all([
+    pedidosPagosEm(dia),
+    transacoesDoDia(dia),
+  ]);
+  const base = conferirContra("PagBank", pedidos, transacoes, ehPagBank);
+
+  /*
+   * O número de parcelas não existe nem na Shopify nem na listagem por data —
+   * só na API nova, uma consulta por cobrança. Vale o custo: não muda a
+   * margem, mas é o que diz quando o dinheiro entra.
+   */
+  const porTransacao = new Map(transacoes.map((t) => [t.referencia, t]));
+  const cobrancas = await cobrancasPorReferencia(
+    linhasDe(pedidos)
+      .filter((l) => ehPagBank(l.gateway) && l.referencia)
+      .map((l) => l.referencia as string),
+  );
+
+  const porParcela = new Map<
+    number,
+    { pedidos: number; valor: number; taxa: number }
+  >();
+  for (const [ref, c] of cobrancas) {
+    const n = (c as Cobranca | null)?.parcelas;
+    const t = porTransacao.get(ref);
+    if (!n || !t?.valeComoVenda) continue;
+    const a = porParcela.get(n) ?? { pedidos: 0, valor: 0, taxa: 0 };
+    a.pedidos += 1;
+    a.valor += t.bruto;
+    a.taxa += t.taxa;
+    porParcela.set(n, a);
+  }
+
+  return {
+    ...base,
+    parcelas: [...porParcela.entries()]
+      .map(([parcelas, a]) => ({ parcelas, ...a }))
+      .sort((x, y) => x.parcelas - y.parcelas),
+  };
+}
+
+/** Mesma conferência, no gateway do Pix. */
+export async function conferirMercadoPago(
+  dia: string,
+): Promise<ConferenciaPagBank | null> {
+  if (!temMercadoPago()) return null;
+
+  const [pedidos, pagamentos] = await Promise.all([
+    pedidosPagosEm(dia),
+    pagamentosDoDia(dia),
+  ]);
+  return conferirContra("Mercado Pago", pedidos, pagamentos, (g) =>
+    /mercado\s*pago/i.test(g),
+  );
 }

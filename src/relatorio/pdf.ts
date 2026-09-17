@@ -722,7 +722,7 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
     "(-) Taxa de pagamento",
     dinheiro(m.taxaDePagamento),
     m.taxaMedida > 0
-      ? `${daReceita(m.taxaDePagamento)} da receita · ${dinheiro(m.taxaMedida)} lidos do PagBank`
+      ? `${daReceita(m.taxaDePagamento)} da receita · ${dinheiro(m.taxaMedida)} lidos dos gateways`
       : `${daReceita(m.taxaDePagamento)} da receita · ` +
           `${numero(config().TAXA_CARTAO_PCT, 2)}% no cartão, ${numero(config().TAXA_PIX_PCT, 2)}% no Pix`,
   );
@@ -781,18 +781,25 @@ function secaoMargem(doc: Doc, d: DadosRelatorio) {
  * ponto cego que o texto precisa admitir — cobrança sem pedido não aparece.
  */
 function secaoPagamento(doc: Doc, d: DadosRelatorio) {
-  const c = d.pagbank;
-  if (!c || c.conferidas === 0) return;
+  for (const c of [d.pagbank, d.mercadopago]) {
+    if (c && c.conferidas > 0) umGateway(doc, d, c);
+  }
+}
 
-  titulo(doc, "Conferência do gateway");
+function umGateway(
+  doc: Doc,
+  d: DadosRelatorio,
+  c: NonNullable<DadosRelatorio["pagbank"]>,
+) {
+  titulo(doc, `Conferência do ${c.nome}`);
 
   const divergem = c.divergentes.length;
 
   linha(
     doc,
-    "Conferidas no PagBank",
+    `Conferidas no ${c.nome}`,
     numero(c.conferidas),
-    `${dinheiro(c.valorConferido)} em transações de cartão`,
+    `${dinheiro(c.valorConferido)} em transações`,
   );
   linha(
     doc,
@@ -859,7 +866,7 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
   if (c.canceladas.quantidade > 0) {
     linha(
       doc,
-      "Canceladas no PagBank",
+      `Canceladas no ${c.nome}`,
       numero(c.canceladas.quantidade),
       `${dinheiro(c.canceladas.valor)} — tentativa que não virou venda, sem taxa`,
       TINTA3,
@@ -870,13 +877,26 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
     doc,
     "Taxa cobrada de verdade",
     dinheiro(c.taxaReal),
-    `${numero(c.taxaRealPct * 100, 2)}% do que passou no cartão`,
+    `${numero(c.taxaRealPct * 100, 2)}% do que passou por ele`,
   );
 
+  /*
+   * Cada gateway conferido tem bloco próprio, e método manual também. Listar o
+   * outro aqui como "credencial própria" era verdade enquanto só existia um —
+   * hoje diria que está de fora justamente o que está conferido logo abaixo.
+   */
+  const temBlocoProprio = (gateway: string) => {
+    if (MANUAIS.has(normalizarGateway(gateway)) && d.manual) return true;
+    if (d.pagbank?.conferidas && /pagbank|pagseguro/i.test(gateway))
+      return true;
+    if (d.mercadopago?.conferidas && /mercado\s*pago/i.test(gateway))
+      return true;
+    return false;
+  };
+
   for (const g of c.foraDoAlcance) {
-    // Método manual tem bloco próprio logo abaixo quando a Pagar.me está ligada.
+    if (temBlocoProprio(g.gateway)) continue;
     const naMao = MANUAIS.has(normalizarGateway(g.gateway));
-    if (naMao && d.manual) continue;
     linha(
       doc,
       naMao ? "Marcado como pago à mão" : `Fora da conferência: ${g.gateway}`,
@@ -895,8 +915,9 @@ function secaoPagamento(doc: Doc, d: DadosRelatorio) {
       "uma e vale nos dois sentidos — e a taxa acima não é alíquota aplicada, é a soma do que o " +
       "PagBank cobrou em cada transação. O que aparece como pago à mão é pedido de rascunho que " +
       "a atendente marcou como pago: não existe cobrança para conferir em gateway nenhum, então " +
-      "essa fatia depende inteiramente de o registro interno estar certo. O Mercado Pago tem " +
-      "credencial própria e fica de fora — a diferença não é divergência.",
+      "essa fatia depende inteiramente de o registro interno estar certo. Cada gateway tem seu " +
+      "próprio bloco, então o que aparece aqui como fora da conferência é só o que ainda não " +
+      "tem credencial.",
     TINTA3,
   );
 

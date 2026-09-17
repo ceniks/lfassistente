@@ -31,6 +31,7 @@ import { patrimonioDoDia, type Patrimonio } from "../data/patrimonio.js";
 import { margemDoDia, type Margem } from "../data/margem.js";
 import {
   conferirPagBank,
+  conferirMercadoPago,
   type ConferenciaPagBank,
 } from "../data/conferencia-pagbank.js";
 import {
@@ -89,6 +90,8 @@ export interface DadosRelatorio {
   patrimonio: Patrimonio | null;
   /** Conferência de cada venda do PagBank contra a cobrança no gateway. */
   pagbank: ConferenciaPagBank | null;
+  /** Mesma conferência no gateway do Pix. */
+  mercadopago: ConferenciaPagBank | null;
   /** Conferência dos pedidos pagos à mão contra a Pagar.me. */
   manual: ConferenciaManual | null;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
@@ -171,6 +174,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     cobertura,
     patrimonio,
     pagbank,
+    mercadopago,
     manual,
   ] = await Promise.all([
     trafegoDoDia(dia),
@@ -193,6 +197,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     ),
     opcional("patrimônio", () => patrimonioDoDia()),
     opcional("pagbank", () => conferirPagBank(dia)),
+    opcional("mercado pago", () => conferirMercadoPago(dia)),
     opcional("pagos à mão", () => conferirPagosAMao(dia)),
   ]);
 
@@ -233,6 +238,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     cobertura,
     patrimonio,
     pagbank,
+    mercadopago,
     manual,
     media7dPorHora,
     margem: margemDoDia(
