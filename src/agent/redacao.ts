@@ -16,20 +16,21 @@
  * certo para a conversa no WhatsApp, onde ele precisa escolher ferramentas e
  * buscar dados; para redigir um parágrafo sobre números já calculados, não.
  */
-import Anthropic from '@anthropic-ai/sdk';
-import { config, exigir } from '../config.js';
+import Anthropic from "@anthropic-ai/sdk";
+import { config, exigir } from "../config.js";
 
 let cliente: Anthropic | null = null;
 
 function api(): Anthropic {
-  if (!cliente) cliente = new Anthropic({ apiKey: exigir('ANTHROPIC_API_KEY') });
+  if (!cliente)
+    cliente = new Anthropic({ apiKey: exigir("ANTHROPIC_API_KEY") });
   return cliente;
 }
 
 const SISTEMA =
-  'Você escreve a leitura diária da operação da L&F, uma marca brasileira de alfaiataria feminina. ' +
-  'Escreve para o dono da empresa, que conhece o negócio a fundo e não precisa de explicação de conceito. ' +
-  'Use exatamente os números que receber; não recalcule nada e não invente comparação que não esteja no texto.';
+  "Você escreve a leitura diária da operação da L&F, uma marca brasileira de alfaiataria feminina. " +
+  "Escreve para o dono da empresa, que conhece o negócio a fundo e não precisa de explicação de conceito. " +
+  "Use exatamente os números que receber; não recalcule nada e não invente comparação que não esteja no texto.";
 
 /**
  * Pede um texto ao modelo e devolve o que ele escreveu.
@@ -46,34 +47,53 @@ const SISTEMA =
  * Sem raciocínio sai mais texto, inteiro, por um terço dos tokens. Para redigir
  * um parágrafo sobre números já calculados não há o que deliberar.
  */
-export async function redigir(prompt: string, maxTokens = 1500): Promise<string> {
+export async function redigir(
+  prompt: string,
+  maxTokens = 1500,
+): Promise<string> {
   const corpo = {
     model: config().CLAUDE_MODEL,
     max_tokens: maxTokens,
     system: SISTEMA,
-    messages: [{ role: 'user' as const, content: prompt }],
+    messages: [{ role: "user" as const, content: prompt }],
   };
 
   // Nem todo modelo aceita desligar o raciocínio explicitamente. Se este não
   // aceitar, vale mais entregar a leitura com raciocínio ligado do que falhar.
   let r: Anthropic.Message;
   try {
-    r = await api().messages.create({ ...corpo, thinking: { type: 'disabled' } });
+    r = await api().messages.create({
+      ...corpo,
+      thinking: { type: "disabled" },
+    });
   } catch {
     r = await api().messages.create(corpo);
   }
 
+  /*
+   * O custo da leitura, no log.
+   *
+   * É a única chamada paga do boletim inteiro — todas as outras APIs são
+   * gratuitas —, então registrar os tokens é o que permite responder "quanto
+   * custa esse relatório por dia" sem abrir fatura nenhuma.
+   */
+  const u = r.usage;
+  console.log(
+    `[redacao] ${config().CLAUDE_MODEL} · entrada ${u.input_tokens} tokens · ` +
+      `saída ${u.output_tokens} tokens`,
+  );
+
   const texto = r.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)
-    .join('\n')
+    .join("\n")
     .trim();
 
-  if (!texto) throw new Error('modelo não devolveu texto');
+  if (!texto) throw new Error("modelo não devolveu texto");
 
   // Truncar a leitura é pior que não ter leitura: uma frase cortada parece
   // dado faltando, e quem lê não sabe o que ficou de fora.
-  if (r.stop_reason === 'max_tokens') {
+  if (r.stop_reason === "max_tokens") {
     throw new Error(`leitura truncada no teto de ${maxTokens} tokens`);
   }
 
