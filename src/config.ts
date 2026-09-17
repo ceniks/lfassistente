@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Configuração do assistente.
@@ -15,7 +15,7 @@ import { z } from 'zod';
 
 /** Variável vazia no .env significa "não configurada", não "valor inválido". */
 const vazioViraUndefined = (v: unknown) =>
-  typeof v === 'string' && v.trim() === '' ? undefined : v;
+  typeof v === "string" && v.trim() === "" ? undefined : v;
 
 const opcional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess(vazioViraUndefined, schema.optional());
@@ -41,13 +41,13 @@ const schema = z.object({
       .string()
       .regex(
         /^\d{12,13}(\s*,\s*\d{12,13})*$/,
-        'use só dígitos, com DDI, separados por vírgula: 5511999999999,5511888888888',
+        "use só dígitos, com DDI, separados por vírgula: 5511999999999,5511888888888",
       ),
   ),
 
   // --- Claude ---
   ANTHROPIC_API_KEY: opcional(z.string()),
-  CLAUDE_MODEL: z.string().default('claude-sonnet-5'),
+  CLAUDE_MODEL: z.string().default("claude-sonnet-5"),
 
   // --- Shopify ---
   SHOPIFY_SHOP: opcional(z.string()),
@@ -60,15 +60,20 @@ const schema = z.object({
   SHOPIFY_CLIENT_SECRET: opcional(z.string()),
   /** Só para quem ainda mantém um custom app legado. Tem precedência se existir. */
   SHOPIFY_ADMIN_TOKEN: opcional(z.string()),
-  SHOPIFY_API_VERSION: z.string().default('2026-07'),
+  SHOPIFY_API_VERSION: z.string().default("2026-07"),
 
   // --- Meta Ads ---
   META_SYSTEM_TOKEN: opcional(z.string()),
   /** Contas que consolidam no resumo. Hoje só a L&F01 gasta. */
   META_AD_ACCOUNT_IDS: z
     .string()
-    .default('2384690018414844')
-    .transform((s) => s.split(',').map((v) => v.trim()).filter(Boolean)),
+    .default("2384690018414844")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean),
+    ),
   /**
    * Gross-up de imposto do Meta. Medido na fatura: R$ 32.221,01 de mídia com
    * R$ 4.456,28 de imposto = 13,8304%.
@@ -118,7 +123,16 @@ const schema = z.object({
    * tem que ser rotulado como tal.
    */
   PAGBANK_TOKEN: opcional(z.string()),
-  /** Só para o token antigo (ws.pagseguro.uol.com.br), que exige e-mail junto. */
+  /**
+   * Token da API antiga (ws.pagseguro.uol.com.br).
+   *
+   * É outro token, não o mesmo da API nova. Só ele lista transações por
+   * intervalo de data e devolve `feeAmount` e `netAmount` — sem isso não há
+   * conferência contra a Shopify nem fechamento de caixa. Vem acompanhado do
+   * e-mail da conta.
+   */
+  PAGBANK_TOKEN_ANTIGO: opcional(z.string()),
+  /** E-mail da conta, exigido junto do token antigo. */
   PAGBANK_EMAIL: opcional(z.string()),
   WABA_ID: opcional(z.string()),
   /**
@@ -147,12 +161,16 @@ const schema = z.object({
    * "834-963-5391" e a API exige "8349635391", então normalizamos aqui em vez
    * de esperar que ninguém esqueça de tirar os traços ao copiar.
    */
-  GOOGLE_ADS_CUSTOMER_ID: opcional(z.string().transform((v) => v.replace(/\D/g, ''))),
+  GOOGLE_ADS_CUSTOMER_ID: opcional(
+    z.string().transform((v) => v.replace(/\D/g, "")),
+  ),
   /**
    * Só preencher se a conta estiver sob uma gerenciadora (MCC): é o ID dela.
    * Fora desse caso, mandar o header atrapalha em vez de ajudar.
    */
-  GOOGLE_ADS_LOGIN_CUSTOMER_ID: opcional(z.string().transform((v) => v.replace(/\D/g, ''))),
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID: opcional(
+    z.string().transform((v) => v.replace(/\D/g, "")),
+  ),
   GOOGLE_ADS_CLIENT_ID: opcional(z.string()),
   GOOGLE_ADS_CLIENT_SECRET: opcional(z.string()),
   /** Obtido uma vez com `npm run google-oauth`. Não expira. */
@@ -162,7 +180,7 @@ const schema = z.object({
    * circulação em setembro de 2026. Fica em variável para a troca ser um
    * redeploy, não um commit.
    */
-  GOOGLE_ADS_API_VERSION: z.string().default('v25'),
+  GOOGLE_ADS_API_VERSION: z.string().default("v25"),
   /**
    * Descontinuado pelo Google em 09/09/2026: o acesso passou a ser gerenciado
    * pela organização do Cloud e o header developer-token é ignorado. Fica aqui
@@ -173,7 +191,7 @@ const schema = z.object({
   // --- Metas (Google Sheets via service account) ---
   GOOGLE_SERVICE_ACCOUNT_JSON: opcional(z.string()),
   METAS_SPREADSHEET_ID: opcional(z.string()),
-  METAS_RANGE: z.string().default('Metas!A:B'),
+  METAS_RANGE: z.string().default("Metas!A:B"),
 
   // --- MCPs próprios ---
   ATENDEPRO_MCP_URL: opcional(url()),
@@ -192,12 +210,12 @@ const schema = z.object({
 
   // --- Runtime ---
   PORT: z.coerce.number().default(3000),
-  TZ: z.string().default('America/Sao_Paulo'),
+  TZ: z.string().default("America/Sao_Paulo"),
   /** Hora do resumo, no fuso acima. */
-  DIGEST_CRON: z.string().default('0 8 * * *'),
+  DIGEST_CRON: z.string().default("0 8 * * *"),
   /** De quanto em quanto tempo checar a saúde da conta de anúncios. */
-  VIGIA_CRON: z.string().default('0 * * * *'),
-  NODE_ENV: z.enum(['development', 'production']).default('production'),
+  VIGIA_CRON: z.string().default("0 * * * *"),
+  NODE_ENV: z.enum(["development", "production"]).default("production"),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -210,8 +228,8 @@ export function config(): Config {
   const parsed = schema.safeParse(process.env);
   if (!parsed.success) {
     const problemas = parsed.error.issues
-      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
+      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
     throw new Error(`Configuração inválida:\n${problemas}`);
   }
 
@@ -226,13 +244,13 @@ export function config(): Config {
  * configuração parcial — é o ponto delas.
  */
 const OBRIGATORIAS = [
-  'EVOLUTION_URL',
-  'EVOLUTION_API_KEY',
-  'EVOLUTION_INSTANCE',
-  'OWNER_PHONE',
-  'ANTHROPIC_API_KEY',
-  'SHOPIFY_SHOP',
-  'META_SYSTEM_TOKEN',
+  "EVOLUTION_URL",
+  "EVOLUTION_API_KEY",
+  "EVOLUTION_INSTANCE",
+  "OWNER_PHONE",
+  "ANTHROPIC_API_KEY",
+  "SHOPIFY_SHOP",
+  "META_SYSTEM_TOKEN",
 ] as const satisfies ReadonlyArray<keyof Config>;
 
 export function exigirConfigCompleta(): Config {
@@ -241,8 +259,8 @@ export function exigirConfigCompleta(): Config {
 
   if (faltando.length) {
     throw new Error(
-      `Faltam variáveis obrigatórias no ambiente:\n${faltando.map((k) => `  ${k}`).join('\n')}\n\n` +
-        'Preencha o .env (veja o .env.example) ou as variáveis do Railway.',
+      `Faltam variáveis obrigatórias no ambiente:\n${faltando.map((k) => `  ${k}`).join("\n")}\n\n` +
+        "Preencha o .env (veja o .env.example) ou as variáveis do Railway.",
     );
   }
 
@@ -255,9 +273,11 @@ export function exigirConfigCompleta(): Config {
  * Erra com o nome da variável em vez de deixar `undefined` viajar até virar um
  * 401 obscuro três chamadas adiante.
  */
-export function exigir<K extends keyof Config>(chave: K): NonNullable<Config[K]> {
+export function exigir<K extends keyof Config>(
+  chave: K,
+): NonNullable<Config[K]> {
   const valor = config()[chave];
-  if (valor === undefined || valor === '') {
+  if (valor === undefined || valor === "") {
     throw new Error(
       `${String(chave)} não está configurada. Preencha no .env (veja o .env.example) ou nas variáveis do Railway.`,
     );
@@ -269,7 +289,9 @@ export function exigir<K extends keyof Config>(chave: K): NonNullable<Config[K]>
 export function temShopify(): boolean {
   const c = config();
   if (!c.SHOPIFY_SHOP) return false;
-  return Boolean(c.SHOPIFY_ADMIN_TOKEN || (c.SHOPIFY_CLIENT_ID && c.SHOPIFY_CLIENT_SECRET));
+  return Boolean(
+    c.SHOPIFY_ADMIN_TOKEN || (c.SHOPIFY_CLIENT_ID && c.SHOPIFY_CLIENT_SECRET),
+  );
 }
 
 export function temMeta(): boolean {
@@ -279,9 +301,9 @@ export function temMeta(): boolean {
 /** Os números autorizados, já separados e sem espaço. */
 export function donos(): string[] {
   const bruto = config().OWNER_PHONE;
-  if (!bruto) throw new Error('OWNER_PHONE não configurado');
+  if (!bruto) throw new Error("OWNER_PHONE não configurado");
   return bruto
-    .split(',')
+    .split(",")
     .map((n) => n.trim())
     .filter(Boolean);
 }
@@ -301,13 +323,14 @@ export function donosJids(): string[] {
  * assistente, e o sintoma seria mudo: mensagem ignorada, nenhum erro.
  */
 function variantes(numero: string): string[] {
-  const d = numero.replace(/\D/g, '');
-  if (!d.startsWith('55') || d.length < 12) return [d];
+  const d = numero.replace(/\D/g, "");
+  if (!d.startsWith("55") || d.length < 12) return [d];
 
   const ddd = d.slice(2, 4);
   const resto = d.slice(4);
   const com9 = resto.length === 8 ? `9${resto}` : resto;
-  const sem9 = resto.length === 9 && resto.startsWith('9') ? resto.slice(1) : resto;
+  const sem9 =
+    resto.length === 9 && resto.startsWith("9") ? resto.slice(1) : resto;
 
   return [...new Set([`55${ddd}${com9}`, `55${ddd}${sem9}`])];
 }
@@ -321,7 +344,7 @@ function variantes(numero: string): string[] {
  * dono é silenciosamente ignorado ao responder do notebook em vez do celular.
  */
 export function ehDono(jid: string): boolean {
-  const numero = (jid.split('@')[0] ?? '').split(':')[0] ?? '';
+  const numero = (jid.split("@")[0] ?? "").split(":")[0] ?? "";
   const doJid = new Set(variantes(numero));
   return donos().some((d) => variantes(d).some((v) => doJid.has(v)));
 }
