@@ -82,12 +82,19 @@ export async function enviarTextoAosDonos(texto: string): Promise<number> {
 export async function enviarDocumentoAosDonos(
   arquivo: { nome: string; base64: string; mimetype?: string },
   legenda?: string,
-): Promise<void> {
+): Promise<number> {
+  let entregues = 0;
   for (const numero of donos()) {
-    await enviarDocumento(numero, arquivo, legenda).catch((e) =>
-      console.error(`[evolution] não consegui enviar ${arquivo.nome} para ${numero}:`, e),
-    );
+    try {
+      await enviarDocumento(numero, arquivo, legenda);
+      entregues++;
+    } catch (e) {
+      console.error(`[evolution] não consegui enviar ${arquivo.nome} para ${numero}:`, e);
+    }
   }
+  // Mesma regra do texto: zero entregas é falha, não sucesso silencioso.
+  if (entregues === 0) console.error(`[evolution] ninguém recebeu ${arquivo.nome}`);
+  return entregues;
 }
 
 /**

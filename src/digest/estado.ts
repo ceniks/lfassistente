@@ -13,6 +13,8 @@ export interface TentativaDeResumo {
   situacao: 'rodando' | 'enviado' | 'falhou';
   erro?: string;
   duracaoEmSegundos?: number;
+  /** O boletim em PDF sai depois do resumo e falha por conta própria. */
+  pdf?: { situacao: 'enviado' | 'falhou'; erro?: string; tamanhoEmKb?: number };
 }
 
 let ultima: TentativaDeResumo | null = null;
@@ -31,6 +33,14 @@ export function resumoTerminou(situacao: 'enviado' | 'falhou', erro?: string): v
     terminouEm: fim.toISOString(),
     duracaoEmSegundos: Math.round((fim.getTime() - new Date(ultima.comecouEm).getTime()) / 1000),
   };
+}
+
+export function boletimTerminou(
+  situacao: 'enviado' | 'falhou',
+  extra: { erro?: string; tamanhoEmKb?: number } = {},
+): void {
+  if (!ultima) return;
+  ultima = { ...ultima, pdf: { situacao, ...extra } };
 }
 
 export function ultimaTentativa(): TentativaDeResumo | null {
