@@ -19,3 +19,7 @@ lf-boletim-*.pdf
 
 # pasta que o Claude usa para entregar arquivo; nada dali pertence ao repo
 Claude outputs/
+
+# Cache de itens de reversa: descartável, reconstrói sozinho.
+dados/reversas-itens.json
+dados/reversas-itens.json.tmp

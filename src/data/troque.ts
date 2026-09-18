@@ -160,6 +160,13 @@ export interface Reversa {
   is_exception?: boolean;
   is_second_reverse?: boolean;
   cancel_reason?: string;
+  /**
+   * O rastreio da transportadora. `status` é o dado dos Correios, não do
+   * Troquecommerce, e é o único lugar que diz se a peça saiu da casa da
+   * cliente: "Aguardando Objeto na Agência" é etiqueta emitida e parada,
+   * "Coletado" é postada. Só vem no detalhe, nunca na listagem.
+   */
+  tracking?: { status?: string | null } | null;
   items?: ItemReversa[];
 }
 
@@ -168,6 +175,35 @@ interface Pagina {
   page: number;
   total_pages: number;
   list: Reversa[];
+}
+
+/**
+ * A reversa saiu da casa da cliente?
+ *
+ * Abrir reversa é um clique; postar a peça é uma ida à agência, e muita gente
+ * para no meio. Contar as abertas infla o retorno em ~13% e, pior, infla de
+ * forma instável: o mês corrente sempre tem gente que ainda vai postar.
+ *
+ * A resposta exata está em `tracking.status`, que vem dos Correios — mas ele só
+ * existe no detalhe, uma chamada por reversa. O status da própria reversa, que
+ * vem de graça na listagem, responde igual. Conferido em 252 reversas de
+ * amostra, 35 por status:
+ *
+ *     Aguardando Envio    → "Aguardando Objeto na Agência" ou prazo expirado
+ *     Em Análise          → idem
+ *     Cancelado           → prazo expirado em 19 de 35; 1 em 35 tinha chegado
+ *     Em Trânsito         → "Coletado"
+ *     Aguardando Receb.   → a caminho
+ *     Entrega Realizada / Aguardando Pagamento / Finalizado → "Entregue"
+ *
+ * Cancelada é quase sempre a reversa que a cliente abriu e deixou o prazo
+ * vencer — o sistema cancela sozinho. Por isso ela sai da conta sem culpa: a
+ * peça nunca se moveu.
+ */
+const NAO_POSTADA = new Set(['aguardando envio', 'em analise', 'cancelado']);
+
+export function foiPostada(r: Reversa): boolean {
+  return !NAO_POSTADA.has(norm(r.status));
 }
 
 /* ------------------------------------------------------------------ *

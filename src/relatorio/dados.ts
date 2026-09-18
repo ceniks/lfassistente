@@ -21,6 +21,7 @@ import { metaDoDia } from "../data/metas.js";
 import { producaoAtual, type Producao } from "../data/producao.js";
 import { atendimentoAtual, type Atendimento } from "../data/atendimento.js";
 import { reversasDoDia, temTroque, type Reversas } from "../data/troque.js";
+import { retornoRolante, type Retorno } from "../data/retorno.js";
 import { conferirEstorno, type Conciliacao } from "../data/conciliacao.js";
 import {
   novosVsRecorrentes,
@@ -85,6 +86,11 @@ export interface DadosRelatorio {
   producao: Producao | null;
   atendimento: Atendimento | null;
   reversas: Reversas | null;
+  /**
+   * Quanto do que a loja vendeu nos 30 dias voltou, contra os 30 anteriores.
+   * Conta peça postada, não reversa aberta — ver `retornoRolante`.
+   */
+  retorno: Retorno | null;
   estornos: Conciliacao | null;
   clientes: NovosVsRecorrentes | null;
   cobertura: Cobertura[] | null;
@@ -172,6 +178,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     producao,
     atendimento,
     reversas,
+    retorno,
     estornos,
     clientes,
     cobertura,
@@ -194,6 +201,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     opcional("trocas", () =>
       temTroque() ? reversasDoDia(dia) : Promise.resolve(null),
     ),
+    opcional("retorno", () => retornoRolante(dia)),
     opcional("estornos", () => conferirEstorno(dia, dia)),
     opcional("clientes", () => novosVsRecorrentes(dia)),
     opcional("cobertura", () =>
@@ -238,6 +246,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     producao,
     atendimento,
     reversas,
+    retorno,
     estornos,
     clientes,
     cobertura,

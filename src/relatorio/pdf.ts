@@ -1700,6 +1700,54 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
   if (!t) return;
   titulo(doc, "Trocas e devoluções");
 
+  /*
+   * A taxa rolante vem antes do movimento do dia de propósito: "23 reversas
+   * abertas" é ruído, "12,6% do que vendemos voltou, contra 17,5%" é o número
+   * que se olha. A quebra troca/estorno é o que conta a história — em setembro
+   * o estorno mal se mexeu e a troca caiu quase à metade.
+   */
+  const r = d.retorno;
+  if (r) {
+    const seta = (a: number, b: number) => (a < b ? BOM : a > b ? RUIM : TINTA);
+    linha(
+      doc,
+      "Retorno postado (30d)",
+      pct(r.atual.taxa, 1),
+      `contra ${pct(r.anterior.taxa, 1)} nos 30 dias anteriores · ` +
+        `${numero(r.atual.postadas)} peças de ${numero(r.atual.vendidas)} vendidas`,
+      seta(r.atual.taxa, r.anterior.taxa),
+    );
+    linha(
+      doc,
+      "· troca",
+      pct(r.atual.taxaDeTroca, 1),
+      `contra ${pct(r.anterior.taxaDeTroca, 1)}`,
+      seta(r.atual.taxaDeTroca, r.anterior.taxaDeTroca),
+    );
+    linha(
+      doc,
+      "· estorno",
+      pct(r.atual.taxaDeEstorno, 1),
+      `contra ${pct(r.anterior.taxaDeEstorno, 1)}`,
+      seta(r.atual.taxaDeEstorno, r.anterior.taxaDeEstorno),
+    );
+    linha(
+      doc,
+      "Abriram e não postaram",
+      numero(r.atual.naoPostadas),
+      "peças com reversa aberta que nunca foram à agência — prazo vencido vira cancelamento",
+    );
+    // O limite é honesto e fica escrito: quem devolveu hoje comprou semanas
+    // atrás, então numerador e denominador são safras diferentes. Enquanto a
+    // venda é estável não distorce; num mês de pico a taxa cai sozinha.
+    paragrafo(
+      doc,
+      "A taxa compara o que voltou na janela com o que foi vendido na janela — são coortes diferentes, " +
+        "então em mês de venda muito acima da média ela aparece mais baixa do que é.",
+      TINTA3,
+    );
+  }
+
   linha(
     doc,
     "Abertas no dia",

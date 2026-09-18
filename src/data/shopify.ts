@@ -2013,3 +2013,60 @@ export async function unidadesVendidasEm(
 
   return fora;
 }
+
+/**
+ * Peças vendidas em duas janelas seguidas, numa busca só.
+ *
+ * Serve à taxa de retorno rolante, que compara os últimos 30 dias com os 30
+ * anteriores. Pedir as duas janelas separadas dobraria a varredura; aqui a
+ * busca cobre os 60 dias de uma vez e o balde é escolhido pela data do pedido.
+ */
+export async function pecasVendidasEmDuasJanelas(
+  inicioAnterior: string,
+  inicioAtual: string,
+  fim: string,
+): Promise<{ atual: number; anterior: number }> {
+  interface Pagina {
+    orders: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{
+        createdAt: string;
+        cancelledAt: string | null;
+        lineItems: { nodes: Array<{ quantity: number }> };
+      }>;
+    };
+  }
+
+  const query = `query($q: String!, $cursor: String) {
+    orders(first: 250, query: $q, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        createdAt
+        cancelledAt
+        lineItems(first: 50) { nodes { quantity } }
+      }
+    }
+  }`;
+
+  const busca =
+    `created_at:>="${inicioAnterior}T00:00:00-03:00" created_at:<="${fim}T23:59:59-03:00"`;
+
+  let atual = 0;
+  let anterior = 0;
+  let cursor: string | null = null;
+
+  for (let pagina = 0; pagina < 60; pagina++) {
+    const r: Pagina = await admin<Pagina>(query, { q: busca, cursor });
+    for (const p of r.orders.nodes) {
+      if (p.cancelledAt) continue;
+      const dia = emSaoPaulo(p.createdAt);
+      const pecas = p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0);
+      if (dia >= inicioAtual) atual += pecas;
+      else anterior += pecas;
+    }
+    if (!r.orders.pageInfo.hasNextPage) break;
+    cursor = r.orders.pageInfo.endCursor;
+  }
+
+  return { atual, anterior };
+}
