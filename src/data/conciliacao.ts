@@ -22,7 +22,7 @@
  *     justamente onde ela importa.
  */
 import { estornosEntre, reembolsosDePedidos, type Estorno } from './shopify.js';
-import { listar, valorPago, type Reversa } from './troque.js';
+import { detalhe, finalizadaEm, listar, valorPago, type Reversa } from './troque.js';
 
 export interface DivergenciaSimples {
   pedido: string;
@@ -131,7 +131,26 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     return d >= de && d <= ate;
   };
 
-  const troqueNoPeriodo = largoTroque.filter((r) => dentro(r) && comEstorno(r) && finalizada(r));
+  // Finalizada sem pagamento registrado não traz a data do fim na listagem: só
+  // o histórico do detalhe diz. São poucas — busca uma a uma.
+  const finalizadasComEstorno = largoTroque.filter((r) => comEstorno(r) && finalizada(r));
+  await Promise.all(
+    finalizadasComEstorno
+      .filter((r) => !r.reverse_payment?.created_at)
+      .map(async (r) => {
+        try {
+          r.history = (await detalhe(r.id)).history ?? null;
+        } catch {
+          /* sem histórico, cai no updated_at abaixo */
+        }
+      }),
+  );
+  const fimDe = (r: Reversa) => diaDe(finalizadaEm(r) ?? r.updated_at ?? r.created_at);
+
+  const troqueNoPeriodo = finalizadasComEstorno.filter((r) => {
+    const d = fimDe(r);
+    return d >= de && d <= ate;
+  });
   const aguardando = largoTroque.filter((r) => dentro(r) && comEstorno(r) && aguardandoPagamento(r));
 
   const finalizadasPorPedido = new Map<string, Reversa[]>();
@@ -185,7 +204,7 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     if (Math.abs(dif) < TOLERANCIA) {
       batem++;
       const shopifyEm = diaDe(e.em);
-      const troqueEm = diaDe(pares[0].updated_at ?? pares[0].created_at);
+      const troqueEm = fimDe(pares[0]);
       if (shopifyEm !== troqueEm) {
         emOutroDia.push({
           pedido: e.pedido,
@@ -201,7 +220,7 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
         shopify: e.valor + e.pendente,
         troque: soma,
         diferenca: dif,
-        reversaEm: (pares[0].updated_at ?? pares[0].created_at).slice(0, 10),
+        reversaEm: fimDe(pares[0]),
       });
     }
   }
@@ -216,13 +235,13 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
       // olhar valor. Um reembolso parcial antigo cobria um estorno maior.
       const naShopify = pares.reduce((s, e) => s + e.valor + e.pendente, 0);
       const dif = naShopify - valor;
-      const troqueEm = diaDe(r.updated_at ?? r.created_at);
+      const troqueEm = fimDe(r);
       if (Math.abs(dif) < TOLERANCIA) {
         batem++;
         const shopifyEm = diaDe(
           pares.map((e) => e.em).sort().at(-1) ?? r.updated_at ?? r.created_at,
         );
-        emOutroDia.push({
+        if (shopifyEm !== troqueEm) emOutroDia.push({
           pedido: `#${chave(r.ecommerce_number)}`,
           valor,
           shopifyEm,

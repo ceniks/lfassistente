@@ -151,7 +151,9 @@ export interface Reversa {
    */
   refund_value?: number;
   /** Preenchido quando o estorno é efetivamente pago. Nulo antes disso. */
-  reverse_payment?: { value?: number | null } | null;
+  reverse_payment?: { value?: number | null; created_at?: string | null } | null;
+  /** Só no detalhe: a linha do tempo da reversa, mais recente primeiro. */
+  history?: Array<{ created_at: string; description?: string | null }> | null;
   /** Quanto ficou em crédito em vez de virar estorno. */
   retained_value?: number;
   retained_bonus?: number;
@@ -293,6 +295,27 @@ export type Tipo = 'troca' | 'estorno' | 'sem_reembolso' | 'misto' | 'desconheci
  * ausência dele é informação: reversa finalizada sem pagamento registrado é
  * caso para olhar, não zero para somar.
  */
+/**
+ * Quando a reversa foi finalizada — que NÃO é o `updated_at`.
+ *
+ * O `updated_at` muda com qualquer toque depois do fim (sincronização de
+ * rastreio, nota fiscal), sem deixar rastro no histórico. O #134062 foi
+ * finalizado e pago em 17/09 às 8h10 e tinha `updated_at` de 20/09; a
+ * conferência o jogou em 20/09 e acusou três dias de atraso que não existiam.
+ *
+ * A data certa é a do pagamento (`reverse_payment.created_at`), que a listagem
+ * já traz. Sem pagamento, só o histórico do detalhe diz — ver
+ * `finalizadaEmPeloHistorico`. Devolve `null` quando não dá para saber.
+ */
+export function finalizadaEm(r: Reversa): string | null {
+  return r.reverse_payment?.created_at ?? finalizadaEmPeloHistorico(r);
+}
+
+export function finalizadaEmPeloHistorico(r: Reversa): string | null {
+  const h = (r.history ?? []).find((x) => norm(x.description ?? '') === 'reversa finalizada');
+  return h?.created_at ?? null;
+}
+
 export function valorPago(r: Reversa): number | null {
   const v = r.reverse_payment?.value;
   return typeof v === 'number' ? v : null;

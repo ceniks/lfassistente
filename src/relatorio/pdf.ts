@@ -888,6 +888,20 @@ function umGateway(
     divergem > 0 ? TINTA : BOM,
   );
 
+  // A pergunta "tem pedido pago sem o dinheiro no gateway?" merece linha
+  // própria, com o "nenhum" escrito. Antes ela só existia implícita no
+  // "Bateram todas" e ninguém achava.
+  const semCobranca = c.divergentes.filter((x) => x.veredito === "ausente");
+  linha(
+    doc,
+    "Pedido pago sem cobrança",
+    semCobranca.length ? numero(semCobranca.length) : "nenhum",
+    semCobranca.length
+      ? `${dinheiro(semCobranca.reduce((s, x) => s + x.valorShopify, 0))} — pago na Shopify e não achado no ${c.nome}`
+      : `todo pedido pago no ${c.nome} tem a cobrança lá`,
+    semCobranca.length ? RUIM : BOM,
+  );
+
   if (divergem > 0) {
     tabela(
       doc,
@@ -988,9 +1002,9 @@ function umGateway(
   paragrafo(
     doc,
     "A ligação entre os dois lados é o identificador do pagamento, que a Shopify guarda em cada " +
-      "transação e o PagBank grava como referência da cobrança. Por isso a conferência é uma a " +
+      `transação e o ${c.nome} grava como referência da cobrança. Por isso a conferência é uma a ` +
       "uma e vale nos dois sentidos — e a taxa acima não é alíquota aplicada, é a soma do que o " +
-      "PagBank cobrou em cada transação. O que aparece como pago à mão é pedido de rascunho que " +
+      `${c.nome} cobrou em cada transação. O que aparece como pago à mão é pedido de rascunho que ` +
       "a atendente marcou como pago: não existe cobrança para conferir em gateway nenhum, então " +
       "essa fatia depende inteiramente de o registro interno estar certo. Cada gateway tem seu " +
       "próprio bloco, então o que aparece aqui como fora da conferência é só o que ainda não " +
@@ -1043,9 +1057,16 @@ const SITUACAO: Record<string, string> = {
 
 function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
   const m = d.manual;
-  if (!m || m.vendas.length === 0) return;
+  if (!m) return;
 
   titulo(doc, "Vendas pagas à mão");
+
+  // Dia sem venda à mão mostra o zero em vez de sumir: bloco que some parece
+  // conferência que não rodou.
+  if (m.vendas.length === 0) {
+    linha(doc, "Vendas marcadas como pagas", "nenhuma", "nada para conferir na Pagar.me hoje", BOM);
+    return;
+  }
 
   linha(
     doc,
