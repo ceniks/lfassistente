@@ -1,3 +1,4 @@
+import { temGoogleAds, ultimaFalhaGoogle } from "../data/google.js";
 import PDFDocument from "pdfkit";
 import type { DadosRelatorio } from "./dados.js";
 import { MANUAIS, normalizarGateway } from "../data/conferencia-manual.js";
@@ -1656,7 +1657,13 @@ function secaoMidia(doc: Doc, d: DadosRelatorio) {
       `ROAS ${numero(d.google.roas, 2)}`,
     );
   } else {
-    linha(doc, "Google", "não conectado");
+    // Credencial presente e sem dado é falha, não ausência: dizer "não
+    // conectado" mandava procurar o problema no lugar errado.
+    if (temGoogleAds()) {
+      linha(doc, "Google", "falhou", ultimaFalhaGoogle ?? "leitura falhou — ver log", RUIM);
+    } else {
+      linha(doc, "Google", "não conectado");
+    }
   }
 
   const gastoTotal = (m?.valorPago ?? 0) + (d.google?.valorPago ?? 0);

@@ -1,3 +1,4 @@
+import { temGoogleAds, ultimaFalhaGoogle } from "../data/google.js";
 import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
 import { reposicao, type Cobertura } from "../data/cobertura.js";
 import type { Patrimonio } from "../data/patrimonio.js";
@@ -360,7 +361,11 @@ export function montarResumo(d: DadosResumo): string {
         `Google pago ${dinheiro(d.google.valorPago)} · ${dinheiro(d.google.receita)} em vendas · ROAS ${numero(d.google.roas, 2)}`,
       );
     } else {
-      mid.push("Google: não conectado");
+      mid.push(
+        temGoogleAds()
+          ? `⚠️ Google: falhou — ${ultimaFalhaGoogle ?? "ver log"}`
+          : "Google: não conectado",
+      );
     }
 
     const gastoTotal = m.valorPago + (d.google?.valorPago ?? 0);

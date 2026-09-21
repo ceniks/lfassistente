@@ -206,7 +206,30 @@ const num = (v?: string | number) => Number(v ?? 0);
  * não no dia da compra. Não vai bater com o faturamento do Shopify, e não
  * deveria — são perguntas diferentes.
  */
+/**
+ * Por que a última leitura falhou, em uma linha — ou `null` se não falhou.
+ *
+ * Existe porque o boletim dizia "Google: não conectado" tanto quando não havia
+ * credencial quanto quando havia e ela tinha expirado. Em 20/09 era o segundo
+ * caso, e a frase mandava procurar o problema no lugar errado.
+ */
+export let ultimaFalhaGoogle: string | null = null;
+
 export async function midiaGoogleDoDia(dia: string): Promise<MidiaGoogle> {
+  try {
+    const r = await lerMidiaGoogle(dia);
+    ultimaFalhaGoogle = null;
+    return r;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ultimaFalhaGoogle = /expired or revoked|invalid_grant|revogado/i.test(msg)
+      ? "autorização do Google expirou — refazer com npm run google-oauth"
+      : msg.split("\n")[0].slice(0, 120);
+    throw e;
+  }
+}
+
+async function lerMidiaGoogle(dia: string): Promise<MidiaGoogle> {
   const linhas = await consultar(
     `SELECT metrics.cost_micros,
             metrics.conversions_value,
