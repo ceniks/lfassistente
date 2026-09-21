@@ -348,7 +348,10 @@ export function montarResumo(d: DadosResumo): string {
     );
     mid.push(`ROAS ${numero(m.roas, 2)} · ${numero(m.compras)} compras`);
     mid.push(
-      `CPA ${dinheiro(m.cpa)} · CPM ${dinheiroExato(m.cpm)} · CPC ${dinheiroExato(m.cpc)} (líquidos)`,
+      `CPA ${dinheiro(m.cpa)} · CPM ${dinheiroExato(m.cpm)} · CPC link ${dinheiroExato(m.cpc)} (líquidos)`,
+    );
+    mid.push(
+      `CTR link ${pct(m.ctr, 2)} · só campanhas de venda`,
     );
 
     if (d.google) {

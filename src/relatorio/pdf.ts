@@ -1625,11 +1625,20 @@ function secaoMidia(doc: Doc, d: DadosRelatorio) {
       numero(m.compras),
       `CPA ${dinheiro(m.cpa)} (líquido)`,
     );
+    // Os três só de campanhas de venda: CPM de campanha de alcance ou
+    // engajamento é outro leilão e estragaria a série.
+    linha(doc, "Meta — CPM", dinheiroExato(m.cpm), "só campanhas de venda");
     linha(
       doc,
-      "Meta — leilão",
-      `${dinheiroExato(m.cpm)} CPM`,
-      `CPC ${dinheiroExato(m.cpc)} · só campanhas de venda`,
+      "Meta — CPC no link",
+      dinheiroExato(m.cpc),
+      "custo por clique que levou ao site · só campanhas de venda",
+    );
+    linha(
+      doc,
+      "Meta — CTR no link",
+      pct(m.ctr, 2),
+      `${numero(m.cliquesNoLink)} cliques no link em ${numero(m.impressoes)} impressões · só campanhas de venda`,
     );
   }
 

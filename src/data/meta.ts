@@ -14,9 +14,19 @@ export interface MidiaMeta {
   compras: number;
   /** Custo por compra sobre o gasto LÍQUIDO — comparável com histórico e benchmark. */
   cpa: number;
-  /** CPM e CPC também líquidos, e só de campanhas com objetivo de vendas. */
+  /** CPM, CPC e CTR também líquidos, e só de campanhas com objetivo de vendas. */
   cpm: number;
+  /**
+   * Custo por clique NO LINK — o clique que leva ao site. O `clicks` do Meta
+   * conta todo clique (curtir, abrir comentário, expandir o texto, ir ao
+   * perfil) e em 19/09 dava R$ 1,84 de CPC contra R$ 2,44 no link: 32% de
+   * cliques que não trazem ninguém para a loja.
+   */
   cpc: number;
+  /** Cliques no link ÷ impressões. Mesmo recorte do CPC. */
+  ctr: number;
+  cliquesNoLink: number;
+  impressoes: number;
   receitaAtribuida: number;
 }
 
@@ -91,7 +101,7 @@ export async function midiaDoDia(dia: string): Promise<MidiaMeta> {
     receitaAtribuida += gasto * roasBruto(row);
   }
 
-  // CPM e CPC só de campanhas de venda, e sobre o gasto líquido.
+  // CPM, CPC e CTR só de campanhas de venda, e sobre o gasto líquido.
   const vendas = await custoDeLeilaoVendas(dia);
 
   const valorPago = gastoLiquido * META_TAX_FACTOR;
@@ -106,12 +116,21 @@ export async function midiaDoDia(dia: string): Promise<MidiaMeta> {
     cpa: totalCompras > 0 ? gastoLiquido / totalCompras : 0,
     cpm: vendas.cpm,
     cpc: vendas.cpc,
+    ctr: vendas.ctr,
+    cliquesNoLink: vendas.cliques,
+    impressoes: vendas.impressoes,
     receitaAtribuida,
   };
 }
 
-/** CPM e CPC médios ponderados das campanhas com objetivo OUTCOME_SALES. */
-async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: number }> {
+/** CPM, CPC e CTR ponderados das campanhas com objetivo OUTCOME_SALES. */
+async function custoDeLeilaoVendas(dia: string): Promise<{
+  cpm: number;
+  cpc: number;
+  ctr: number;
+  cliques: number;
+  impressoes: number;
+}> {
   const { META_AD_ACCOUNT_IDS } = config();
 
   let impressoes = 0;
@@ -122,7 +141,7 @@ async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: num
     const params = new URLSearchParams({
       access_token: exigir('META_SYSTEM_TOKEN'),
       time_range: JSON.stringify({ since: dia, until: dia }),
-      fields: 'spend,impressions,clicks',
+      fields: 'spend,impressions,inline_link_clicks',
       level: 'campaign',
       filtering: JSON.stringify([
         { field: 'campaign.objective', operator: 'IN', value: ['OUTCOME_SALES'] },
@@ -133,19 +152,22 @@ async function custoDeLeilaoVendas(dia: string): Promise<{ cpm: number; cpc: num
     if (!res.ok) continue;
 
     const json = (await res.json()) as {
-      data?: Array<{ spend?: string; impressions?: string; clicks?: string }>;
+      data?: Array<{ spend?: string; impressions?: string; inline_link_clicks?: string }>;
     };
 
     for (const row of json.data ?? []) {
       gasto += n(row.spend);
       impressoes += n(row.impressions);
-      cliques += n(row.clicks);
+      cliques += n(row.inline_link_clicks);
     }
   }
 
   return {
     cpm: impressoes > 0 ? (gasto / impressoes) * 1000 : 0,
     cpc: cliques > 0 ? gasto / cliques : 0,
+    ctr: impressoes > 0 ? cliques / impressoes : 0,
+    cliques,
+    impressoes,
   };
 }
 
@@ -169,7 +191,9 @@ export interface LinhaMidia {
   /** Sobre o gasto líquido, para comparar com leilão e histórico. */
   cpa: number;
   cpm: number;
+  /** Sobre cliques no link, não todos os cliques. */
   cpc: number;
+  ctr: number;
   cliques: number;
   impressoes: number;
 }
@@ -200,7 +224,7 @@ export async function desempenhoPorNivel(dia: string, nivel: Nivel): Promise<Lin
       new URLSearchParams({
         access_token: exigir('META_SYSTEM_TOKEN'),
         time_range: JSON.stringify({ since: dia, until: dia }),
-        fields: `${NIVEL_CAMPO[nivel]},spend,impressions,clicks,actions,action_values`,
+        fields: `${NIVEL_CAMPO[nivel]},spend,impressions,inline_link_clicks,actions,action_values`,
         level: nivel,
         limit: '200',
       });
@@ -224,7 +248,8 @@ export async function desempenhoPorNivel(dia: string, nivel: Nivel): Promise<Lin
 
         const compras = compra(acoes);
         const receita = compra(valores);
-        const cliques = n(row.clicks as string | undefined);
+        // Clique no link, como no CPC do bloco de mídia.
+        const cliques = n(row.inline_link_clicks as string | undefined);
         const impressoes = n(row.impressions as string | undefined);
         const valorPago = gasto * META_TAX_FACTOR;
 
@@ -240,6 +265,7 @@ export async function desempenhoPorNivel(dia: string, nivel: Nivel): Promise<Lin
           cpa: compras > 0 ? gasto / compras : 0,
           cpm: impressoes > 0 ? (gasto / impressoes) * 1000 : 0,
           cpc: cliques > 0 ? gasto / cliques : 0,
+          ctr: impressoes > 0 ? cliques / impressoes : 0,
           cliques,
           impressoes,
         });

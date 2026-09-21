@@ -2036,7 +2036,7 @@ export async function pedidosComPecas(de: string, ate: string): Promise<PedidoDa
         name: string;
         createdAt: string;
         cancelledAt: string | null;
-        lineItems: { nodes: Array<{ quantity: number }> };
+        subtotalLineItemsQuantity: number;
       }>;
     };
   }
@@ -2048,7 +2048,7 @@ export async function pedidosComPecas(de: string, ate: string): Promise<PedidoDa
         name
         createdAt
         cancelledAt
-        lineItems(first: 50) { nodes { quantity } }
+        subtotalLineItemsQuantity
       }
     }
   }`;
@@ -2058,6 +2058,9 @@ export async function pedidosComPecas(de: string, ate: string): Promise<PedidoDa
   let cursor: string | null = null;
 
   // Noventa dias são ~14 mil pedidos, 56 páginas. O teto é folga, não alvo.
+  // A quantidade vem do campo agregado do pedido, não da lista de itens: pedir
+  // `lineItems` multiplica o custo da consulta por 50 e, rodando junto com o
+  // resto do boletim, esgotava o balde da Shopify e dobrava o tempo.
   for (let pagina = 0; pagina < 150; pagina++) {
     const r: Pagina = await admin<Pagina>(query, { q: busca, cursor });
     for (const p of r.orders.nodes) {
@@ -2065,7 +2068,7 @@ export async function pedidosComPecas(de: string, ate: string): Promise<PedidoDa
       saida.push({
         numero: p.name.replace(/\D/g, ""),
         dia: emSaoPaulo(p.createdAt),
-        pecas: p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0),
+        pecas: p.subtotalLineItemsQuantity,
       });
     }
     if (!r.orders.pageInfo.hasNextPage) break;
