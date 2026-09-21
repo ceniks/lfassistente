@@ -509,7 +509,20 @@ export function montarResumo(d: DadosResumo): string {
 
       if (limpo) {
         tr.push(`✅ Os dois lados batem — ${numero(c.batem)} pedidos conferidos`);
-      } else {
+      }
+      // Sem isso, "batem" ao lado de totais diferentes parece erro do relatório.
+      if (c.emOutroDia.length) {
+        const casos = c.emOutroDia
+          .slice(0, 4)
+          .map((x) => {
+            const [, m, dd] = x.shopifyEm.split("-");
+            return `${x.pedido} (Shopify ${dd}/${m}, ${Math.abs(x.dias)}d ${x.dias > 0 ? "antes" : "depois"})`;
+          })
+          .join(", ");
+        const resto = c.emOutroDia.length > 4 ? ` +${c.emOutroDia.length - 4}` : "";
+        tr.push(`↔️ ${numero(c.emOutroDia.length)} em dias diferentes: ${casos}${resto}`);
+      }
+      if (!limpo) {
         if (c.soShopify.length) {
           tr.push(
             `⚠️ ${numero(c.soShopify.length)} só na Shopify (saiu sem reversa finalizada): ${listar(c.soShopify)}`,

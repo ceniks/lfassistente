@@ -40,6 +40,26 @@ export interface DivergenciaDeValor {
   reversaEm: string;
 }
 
+/**
+ * Par que bate no valor mas com os dois lados em dias diferentes.
+ *
+ * Não é divergência — o dinheiro saiu e a reversa fechou — mas também não pode
+ * sumir dentro de "os dois lados batem". Em 20/09 o Troquecommerce finalizou
+ * R$ 1.105 e a Shopify não reembolsou nada no dia; o relatório disse "batem"
+ * sem explicar, e quem olha os totais vê uma diferença de R$ 1.105 sem motivo.
+ * Um dos dois pedidos (#132261) tinha sido reembolsado na Shopify em 18/08: a
+ * reversa ficou 33 dias aberta depois do dinheiro sair. Isso é informação de
+ * processo, e precisa aparecer.
+ */
+export interface ForaDoDia {
+  pedido: string;
+  valor: number;
+  shopifyEm: string;
+  troqueEm: string;
+  /** Troque menos Shopify, em dias. Positivo: a reversa fechou depois do reembolso. */
+  dias: number;
+}
+
 export interface Conciliacao {
   de: string;
   ate: string;
@@ -50,6 +70,8 @@ export interface Conciliacao {
   soTroque: DivergenciaSimples[];
   valorDiferente: DivergenciaDeValor[];
   batem: number;
+  /** Os que batem com os lados em dias diferentes — explica a diferença dos totais. */
+  emOutroDia: ForaDoDia[];
 }
 
 /** Dias antes e depois para procurar a reversa de um reembolso órfão. */
@@ -64,6 +86,12 @@ const desloca = (dia: string, n: number) => {
 
 /** Só os dígitos: "#130070" e "130070" são o mesmo pedido. */
 const chave = (s?: string | null) => (s ?? '').replace(/\D/g, '');
+
+const diaDe = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+const diasEntre = (de: string, ate: string) =>
+  Math.round((Date.parse(`${ate}T12:00:00Z`) - Date.parse(`${de}T12:00:00Z`)) / 86_400_000);
 
 const normalizar = (s: string) =>
   s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
@@ -96,8 +124,10 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     listar({ atualizadaDe: desloca(de, -JANELA), atualizadaAte: desloca(ate, JANELA) }),
   ]);
 
+  // O dia em São Paulo, não em UTC: o Troquecommerce grava em UTC, e uma
+  // reversa finalizada às 22h22 de 19/09 aparecia como 20/09 (foi o #132261).
   const dentro = (r: Reversa) => {
-    const d = (r.updated_at ?? r.created_at).slice(0, 10);
+    const d = diaDe(r.updated_at ?? r.created_at);
     return d >= de && d <= ate;
   };
 
@@ -128,6 +158,7 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
   const soShopify: DivergenciaSimples[] = [];
   const soTroque: DivergenciaSimples[] = [];
   const valorDiferente: DivergenciaDeValor[] = [];
+  const emOutroDia: ForaDoDia[] = [];
   let batem = 0;
 
   for (const e of noPeriodo) {
@@ -153,6 +184,17 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     const dif = e.valor + e.pendente - soma;
     if (Math.abs(dif) < TOLERANCIA) {
       batem++;
+      const shopifyEm = diaDe(e.em);
+      const troqueEm = diaDe(pares[0].updated_at ?? pares[0].created_at);
+      if (shopifyEm !== troqueEm) {
+        emOutroDia.push({
+          pedido: e.pedido,
+          valor: e.valor + e.pendente,
+          shopifyEm,
+          troqueEm,
+          dias: diasEntre(shopifyEm, troqueEm),
+        });
+      }
     } else {
       valorDiferente.push({
         pedido: e.pedido,
@@ -170,7 +212,32 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     const pares = shopifyPorPedido.get(k) ?? [];
     const valor = valorParaConferir(r);
     if (pares.length) {
-      batem++;
+      // Antes bastava existir reembolso no pedido para contar como "batem", sem
+      // olhar valor. Um reembolso parcial antigo cobria um estorno maior.
+      const naShopify = pares.reduce((s, e) => s + e.valor + e.pendente, 0);
+      const dif = naShopify - valor;
+      const troqueEm = diaDe(r.updated_at ?? r.created_at);
+      if (Math.abs(dif) < TOLERANCIA) {
+        batem++;
+        const shopifyEm = diaDe(
+          pares.map((e) => e.em).sort().at(-1) ?? r.updated_at ?? r.created_at,
+        );
+        emOutroDia.push({
+          pedido: `#${chave(r.ecommerce_number)}`,
+          valor,
+          shopifyEm,
+          troqueEm,
+          dias: diasEntre(shopifyEm, troqueEm),
+        });
+      } else {
+        valorDiferente.push({
+          pedido: `#${chave(r.ecommerce_number)}`,
+          shopify: naShopify,
+          troque: valor,
+          diferenca: dif,
+          reversaEm: troqueEm,
+        });
+      }
     } else {
       soTroque.push({
         pedido: `#${r.ecommerce_number ?? '?'}`,
@@ -207,5 +274,6 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
     soTroque,
     valorDiferente,
     batem,
+    emOutroDia: emOutroDia.sort((a, b) => b.dias - a.dias),
   };
 }

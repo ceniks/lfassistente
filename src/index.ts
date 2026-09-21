@@ -6,6 +6,7 @@ import { ontem } from './digest/build.js';
 import { verificarContas } from './vigia.js';
 import { boletimTerminou, resumoComecou, resumoTerminou } from './digest/estado.js';
 import { gerarBoletim } from './relatorio/index.js';
+import { aquecerCacheDeReversas } from './data/retorno.js';
 
 // Valida o conjunto obrigatório antes de qualquer coisa subir.
 const c = exigirConfigCompleta();
@@ -18,6 +19,10 @@ const app = criarApp();
 
 app.listen(c.PORT, () => {
   console.log(`[lf-assistant] ouvindo na porta ${c.PORT}`);
+  // Segundo plano: não segura o boot nem o healthcheck.
+  aquecerCacheDeReversas()
+    .then(() => console.log('[reversas] cache aquecido'))
+    .catch((e) => console.error('[reversas] aquecimento falhou:', e));
   console.log(`[lf-assistant] resumo agendado: ${c.DIGEST_CRON} (${c.TZ})`);
 });
 

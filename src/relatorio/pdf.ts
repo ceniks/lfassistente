@@ -1695,6 +1695,12 @@ function secaoCampanhas(doc: Doc, d: DadosRelatorio) {
   );
 }
 
+/** "2026-08-18" -> "18/08". */
+function dataCurta(dia: string): string {
+  const [, m, d] = dia.split("-");
+  return `${d}/${m}`;
+}
+
 function secaoTrocas(doc: Doc, d: DadosRelatorio) {
   const t = d.reversas;
   if (!t) return;
@@ -1830,6 +1836,31 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
         : `${numero(c.batem)} conferidos batem`,
       divergentes > 0 ? RUIM : TINTA,
     );
+
+    if (c.emOutroDia.length) {
+      const soma = c.emOutroDia.reduce((s, x) => s + x.valor, 0);
+      linha(
+        doc,
+        "Batem, mas em dias diferentes",
+        dinheiro(soma),
+        `${numero(c.emOutroDia.length)} pedido(s) — é isso que separa os dois totais acima`,
+      );
+      tabela(
+        doc,
+        ["Pedido", "Reembolso Shopify", "Baixa Troquecommerce", "Atraso", "Valor"],
+        c.emOutroDia.map((x) => [
+          x.pedido,
+          dataCurta(x.shopifyEm),
+          dataCurta(x.troqueEm),
+          x.dias > 0
+            ? `reversa fechou ${numero(x.dias)} dia(s) depois`
+            : `reembolso saiu ${numero(-x.dias)} dia(s) depois`,
+          dinheiro(x.valor),
+        ]),
+        [70, 95, 110, LARGURA - 365, 90],
+        ["left", "left", "left", "left", "right"],
+      );
+    }
 
     if (divergentes > 0) {
       const linhas: string[][] = [];

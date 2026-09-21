@@ -41,6 +41,9 @@ import {
 
 export const DIAS_DA_JANELA = 30;
 
+/** ~2 minutos de busca: cabe no boletim das 8h mesmo depois de um deploy. */
+const LIMITE_NO_BOLETIM = 500;
+
 export interface Janela {
   de: string;
   ate: string;
@@ -82,7 +85,10 @@ function contar(
   let semDetalhe = 0;
 
   for (const r of reversas) {
-    const dia = r.created_at.slice(0, 10);
+    // Dia em São Paulo: o Troquecommerce grava em UTC.
+    const dia = new Date(r.created_at).toLocaleDateString("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    });
     if (dia < de || dia > ate) continue;
 
     const lista = itens.get(r.id);
@@ -122,7 +128,7 @@ export async function retornoRolante(
 
   // A listagem não traz os itens, e é no item que mora a quantidade e a
   // separação entre troca e estorno. O cache busca só o que ainda não viu.
-  const itens = await itensDasReversas(reversas, loja);
+  const itens = await itensDasReversas(reversas, loja, LIMITE_NO_BOLETIM);
 
   const montar = (de: string, ate: string, vendidas: number): Janela => {
     const c = contar(reversas, itens, de, ate);
@@ -142,4 +148,21 @@ export async function retornoRolante(
     atual: montar(inicioAtual, dia, vendas.atual),
     anterior: montar(inicioAnterior, fimAnterior, vendas.anterior),
   };
+}
+
+/**
+ * Enche o cache de itens ao subir o serviço.
+ *
+ * Deploy novo começa com o disco vazio, e sem isso o primeiro boletim gastaria
+ * sete minutos só nas reversas. Rodando no boot, em segundo plano, às 8h o
+ * cache já está cheio.
+ */
+export async function aquecerCacheDeReversas(loja: Loja = "atual"): Promise<void> {
+  if (!temTroque(loja)) return;
+  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const reversas = await listar(
+    { criadaDe: diasAntes(hoje, DIAS_DA_JANELA * 2 + 1), criadaAte: hoje },
+    loja,
+  );
+  await itensDasReversas(reversas, loja);
 }

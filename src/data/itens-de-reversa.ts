@@ -72,13 +72,21 @@ async function gravar(cache: Map<string, Registro>): Promise<void> {
 export async function itensDasReversas(
   reversas: Reversa[],
   loja: Loja = "atual",
+  /**
+   * Teto de buscas nesta chamada. Com o cache frio (deploy novo) são ~2.200
+   * detalhes, uns sete minutos — o boletim das 8h tem teto de dez. Passado o
+   * limite, busca o que dá, grava e desiste: o bloco sai no dia seguinte em vez
+   * de derrubar o boletim inteiro.
+   */
+  limite = Infinity,
 ): Promise<Map<string, ItemContado[]>> {
   const cache = await carregar();
 
-  const faltando = reversas.filter((r) => {
+  const todosFaltando = reversas.filter((r) => {
     const guardado = cache.get(r.id);
     return !guardado || guardado.atualizada !== (r.updated_at ?? "");
   });
+  const faltando = todosFaltando.slice(0, limite);
 
   if (faltando.length) {
     const t0 = Date.now();
@@ -116,6 +124,12 @@ export async function itensDasReversas(
         (erros ? ` · ${erros} falharam` : ""),
     );
     await gravar(cache);
+  }
+
+  if (todosFaltando.length > faltando.length) {
+    throw new Error(
+      `cache de reversas ainda aquecendo: faltam ${todosFaltando.length - faltando.length}`,
+    );
   }
 
   const saida = new Map<string, ItemContado[]>();
