@@ -1728,49 +1728,64 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
   titulo(doc, "Trocas e devoluções");
 
   /*
-   * A taxa rolante vem antes do movimento do dia de propósito: "23 reversas
-   * abertas" é ruído, "12,6% do que vendemos voltou, contra 17,5%" é o número
-   * que se olha. A quebra troca/estorno é o que conta a história — em setembro
-   * o estorno mal se mexeu e a troca caiu quase à metade.
+   * A taxa de retorno vem antes do movimento do dia de propósito: "45 reversas
+   * abertas" é ruído, "de cada 100 peças vendidas, 16 voltaram" é o número que
+   * se olha. E é por safra de venda, não janela rolante — ver `retornoPorSafra`
+   * para o porquê.
    */
   const r = d.retorno;
   if (r) {
     const seta = (a: number, b: number) => (a < b ? BOM : a > b ? RUIM : TINTA);
+    const periodo = (x: { de: string; ate: string }) =>
+      `${dataCurta(x.de)} a ${dataCurta(x.ate)}`;
+    const { fechada: f, anterior: a, aberta: ab, fechadaNaMesmaIdade: m } = r;
+
     linha(
       doc,
-      "Retorno postado (30d)",
-      pct(r.atual.taxa, 1),
-      `contra ${pct(r.anterior.taxa, 1)} nos 30 dias anteriores · ` +
-        `${numero(r.atual.postadas)} peças de ${numero(r.atual.vendidas)} vendidas`,
-      seta(r.atual.taxa, r.anterior.taxa),
+      "Retorno da safra fechada",
+      pct(f.taxa, 1),
+      `vendas de ${periodo(f)} · ${numero(f.postadas)} de ${numero(f.vendidas)} peças voltaram · ` +
+        `safra anterior (${periodo(a)}) ${pct(a.taxa, 1)}`,
+      seta(f.taxa, a.taxa),
     );
     linha(
       doc,
       "· troca",
-      pct(r.atual.taxaDeTroca, 1),
-      `contra ${pct(r.anterior.taxaDeTroca, 1)}`,
-      seta(r.atual.taxaDeTroca, r.anterior.taxaDeTroca),
+      pct(f.taxaDeTroca, 1),
+      `contra ${pct(a.taxaDeTroca, 1)} na safra anterior`,
+      seta(f.taxaDeTroca, a.taxaDeTroca),
     );
     linha(
       doc,
       "· estorno",
-      pct(r.atual.taxaDeEstorno, 1),
-      `contra ${pct(r.anterior.taxaDeEstorno, 1)}`,
-      seta(r.atual.taxaDeEstorno, r.anterior.taxaDeEstorno),
+      pct(f.taxaDeEstorno, 1),
+      `contra ${pct(a.taxaDeEstorno, 1)} na safra anterior`,
+      seta(f.taxaDeEstorno, a.taxaDeEstorno),
+    );
+    // O alarme antecipado. A aberta sozinha sempre parece ótima, porque ainda
+    // vai subir; comparada com a fechada na mesma idade, ela diz se a safra
+    // nova está voltando mais depressa que a anterior.
+    linha(
+      doc,
+      "Safra em aberto",
+      pct(ab.taxa, 1),
+      `vendas de ${periodo(ab)}, ainda voltando · na mesma idade a safra fechada estava em ${pct(m.taxa, 1)}`,
+      seta(ab.taxa, m.taxa),
     );
     linha(
       doc,
       "Abriram e não postaram",
-      numero(r.atual.naoPostadas),
-      "peças com reversa aberta que nunca foram à agência — prazo vencido vira cancelamento",
+      numero(f.naoPostadas),
+      "peças da safra fechada com reversa aberta que nunca foram à agência",
     );
-    // O limite é honesto e fica escrito: quem devolveu hoje comprou semanas
-    // atrás, então numerador e denominador são safras diferentes. Enquanto a
-    // venda é estável não distorce; num mês de pico a taxa cai sozinha.
     paragrafo(
       doc,
-      "A taxa compara o que voltou na janela com o que foi vendido na janela — são coortes diferentes, " +
-        "então em mês de venda muito acima da média ela aparece mais baixa do que é.",
+      "Cada devolução volta para o pedido de origem, então a taxa é de quem comprou naquele período, " +
+        "não uma mistura de safras. A safra fecha aos 30 dias: 96% das reversas abrem até lá. " +
+        "Troca e estorno contam peça postada, não reversa só aberta." +
+        (r.semDetalhe
+          ? ` ${numero(r.semDetalhe)} reversa(s) sem detalhe ficaram fora da conta.`
+          : ""),
       TINTA3,
     );
   }

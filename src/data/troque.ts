@@ -168,7 +168,7 @@ export interface Reversa {
    * cliente: "Aguardando Objeto na Agência" é etiqueta emitida e parada,
    * "Coletado" é postada. Só vem no detalhe, nunca na listagem.
    */
-  tracking?: { status?: string | null } | null;
+  tracking?: { status?: string | null; posted_date?: string | null } | null;
   items?: ItemReversa[];
 }
 
@@ -239,9 +239,11 @@ export async function listar(filtro: Filtro, loja: Loja = 'atual'): Promise<Reve
   let pagina = 1;
 
   // Guarda-chuva: a API pagina e nada impede um filtro largo demais de varrer a
-  // base inteira às 8h da manhã. Cinquenta páginas é muito mais do que um dia
-  // de operação produz e ainda assim termina rápido.
-  const MAX_PAGINAS = 50;
+  // base inteira às 8h da manhã. A página tem 50 reversas, então o teto antigo
+  // de 50 páginas cortava em 2.500 — e noventa dias de reversas são ~3.500. O
+  // corte era silencioso: a lista vinha incompleta e a taxa, baixa. Agora o
+  // teto é folgado e, se for atingido, é erro, não número errado.
+  const MAX_PAGINAS = 200;
 
   while (pagina <= MAX_PAGINAS) {
     const r = await get<Pagina>(
@@ -259,6 +261,9 @@ export async function listar(filtro: Filtro, loja: Loja = 'atual'): Promise<Reve
 
     saida.push(...(r.list ?? []));
     if (!r.total_pages || pagina >= r.total_pages) break;
+    if (pagina === MAX_PAGINAS) {
+      throw new Error(`listagem do Troquecommerce passou de ${MAX_PAGINAS} páginas`);
+    }
     pagina += 1;
   }
 

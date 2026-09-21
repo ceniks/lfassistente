@@ -112,7 +112,7 @@ async function esperarSaldo(custoEstimado = 100): Promise<void> {
   await dormir(Math.ceil((faltam / saldo.restaurePorSegundo) * 1000) + 100);
 }
 
-async function admin<T>(
+export async function admin<T>(
   query: string,
   variables: Record<string, unknown> = {},
   tentativa = 0,
@@ -2015,21 +2015,25 @@ export async function unidadesVendidasEm(
 }
 
 /**
- * Peças vendidas em duas janelas seguidas, numa busca só.
+ * Cada pedido de um período, com o número e as peças.
  *
- * Serve à taxa de retorno rolante, que compara os últimos 30 dias com os 30
- * anteriores. Pedir as duas janelas separadas dobraria a varredura; aqui a
- * busca cobre os 60 dias de uma vez e o balde é escolhido pela data do pedido.
+ * É o lado da venda da taxa de retorno por safra: a reversa aponta o número do
+ * pedido de origem, e é por ele que a devolução volta para o mês em que a peça
+ * foi vendida. Pedido cancelado fica de fora — não saiu peça nenhuma.
  */
-export async function pecasVendidasEmDuasJanelas(
-  inicioAnterior: string,
-  inicioAtual: string,
-  fim: string,
-): Promise<{ atual: number; anterior: number }> {
+export interface PedidoDaSafra {
+  numero: string;
+  /** Dia da compra em São Paulo. */
+  dia: string;
+  pecas: number;
+}
+
+export async function pedidosComPecas(de: string, ate: string): Promise<PedidoDaSafra[]> {
   interface Pagina {
     orders: {
       pageInfo: { hasNextPage: boolean; endCursor: string | null };
       nodes: Array<{
+        name: string;
         createdAt: string;
         cancelledAt: string | null;
         lineItems: { nodes: Array<{ quantity: number }> };
@@ -2041,6 +2045,7 @@ export async function pecasVendidasEmDuasJanelas(
     orders(first: 250, query: $q, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
+        name
         createdAt
         cancelledAt
         lineItems(first: 50) { nodes { quantity } }
@@ -2048,25 +2053,24 @@ export async function pecasVendidasEmDuasJanelas(
     }
   }`;
 
-  const busca =
-    `created_at:>="${inicioAnterior}T00:00:00-03:00" created_at:<="${fim}T23:59:59-03:00"`;
-
-  let atual = 0;
-  let anterior = 0;
+  const busca = `created_at:>="${de}T00:00:00-03:00" created_at:<="${ate}T23:59:59-03:00"`;
+  const saida: PedidoDaSafra[] = [];
   let cursor: string | null = null;
 
-  for (let pagina = 0; pagina < 60; pagina++) {
+  // Noventa dias são ~14 mil pedidos, 56 páginas. O teto é folga, não alvo.
+  for (let pagina = 0; pagina < 150; pagina++) {
     const r: Pagina = await admin<Pagina>(query, { q: busca, cursor });
     for (const p of r.orders.nodes) {
       if (p.cancelledAt) continue;
-      const dia = emSaoPaulo(p.createdAt);
-      const pecas = p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0);
-      if (dia >= inicioAtual) atual += pecas;
-      else anterior += pecas;
+      saida.push({
+        numero: p.name.replace(/\D/g, ""),
+        dia: emSaoPaulo(p.createdAt),
+        pecas: p.lineItems.nodes.reduce((s, i) => s + i.quantity, 0),
+      });
     }
     if (!r.orders.pageInfo.hasNextPage) break;
     cursor = r.orders.pageInfo.endCursor;
   }
 
-  return { atual, anterior };
+  return saida;
 }
