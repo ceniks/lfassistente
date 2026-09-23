@@ -249,8 +249,14 @@ const schema = z.object({
   SMTP_PASSWORD: opcional(z.string()),
   /** Remetente exibido; vazio usa o próprio SMTP_USER. */
   SMTP_FROM: z.string().default(""),
-  /** `{mes}` vira "setembro de 2026" no assunto do e-mail. */
-  HOLERITE_ASSUNTO: z.string().default("Seu holerite — {mes}"),
+  /** `{mes}` vira "Agosto/2026" no assunto do e-mail. */
+  HOLERITE_ASSUNTO: z.string().default("Holerite de {mes} - {nome}"),
+
+  /**
+   * Autorização do Gmail (escopo gmail.send), obtida no mesmo cliente OAuth do
+   * Google Ads. Preferida ao SMTP: nenhuma senha circula.
+   */
+  GMAIL_REFRESH_TOKEN: opcional(z.string()),
 
   // --- MCPs próprios ---
   ATENDEPRO_MCP_URL: opcional(url()),
