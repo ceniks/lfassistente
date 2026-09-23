@@ -24,6 +24,7 @@ import { acharFuncionaria, carregarCadastro, salvarCadastroDeCsv } from "./cadas
 import { corpoDoEmail, mesDeReferencia, tratamentoDe } from "./fluxo.js";
 import { enviarPeloGmail, temGmail } from "./gmail.js";
 import { enviarEmail, temEnvioDeEmail } from "./email.js";
+import { chaveDeNome, jaRecebeuEm, listarHistorico, registrarEnvio } from "./historico.js";
 
 interface Item {
   id: string;
@@ -125,7 +126,14 @@ export function rotasDeRh(): Router {
     res.json({
       cadastro: cadastro.length,
       envio: temGmail() ? "Gmail" : temEnvioDeEmail() ? "SMTP" : null,
+      assunto: config().HOLERITE_ASSUNTO,
+      corpo: config().HOLERITE_CORPO,
     });
+  });
+
+  /** O que já foi enviado, mês a mês. */
+  r.get("/historico", exigirSessao, async (_req, res) => {
+    res.json({ lotes: await listarHistorico() });
   });
 
   r.post("/cadastro", exigirSessao, async (req, res) => {
@@ -165,6 +173,8 @@ export function rotasDeRh(): Router {
         totalDePaginas: divisao.totalDePaginas,
       });
 
+      const recebidos = await jaRecebeuEm(lotes.get(id)!.mes);
+
       res.json({
         id,
         mes: lotes.get(id)!.mes,
@@ -178,6 +188,11 @@ export function rotasDeRh(): Router {
           paginas: i.paginas,
           tratamento: tratamentoDe(i.nome),
           tamanho: i.pdf.length,
+          // Já recebeu este mês: a linha vem desmarcada, para reenviar ser
+          // decisão e não repetição por descuido.
+          jaRecebeu:
+            Boolean(i.email && recebidos.has(i.email.toLowerCase())) ||
+            recebidos.has(chaveDeNome(nomeBonito(i.nome))),
         })),
       });
     } catch (e) {
@@ -202,6 +217,8 @@ export function rotasDeRh(): Router {
     const corpo = req.body as {
       lote?: string;
       mes?: string;
+      assunto?: string;
+      texto?: string;
       envios?: Array<{ id: string; email: string; tratamento?: string }>;
     };
     const lote = lotes.get(String(corpo.lote));
@@ -226,17 +243,18 @@ export function rotasDeRh(): Router {
         continue;
       }
 
+      const tratamento =
+        envio.tratamento === "Prezado" || envio.tratamento === "Prezada"
+          ? envio.tratamento
+          : tratamentoDe(item.nome);
+
       const mensagem = {
         para: email,
-        assunto: config()
-          .HOLERITE_ASSUNTO.replace("{mes}", mes)
-          .replace("{nome}", nomeBonito(item.nome)),
-        corpo: corpoDoEmail(nomeBonito(item.nome), mes).replace(
-          /^Prezad[ao]/,
-          envio.tratamento === "Prezado" || envio.tratamento === "Prezada"
-            ? envio.tratamento
-            : tratamentoDe(item.nome),
-        ),
+        assunto: (corpo.assunto || config().HOLERITE_ASSUNTO)
+          .replace(/\{mes\}/g, mes)
+          .replace(/\{nome\}/g, nomeBonito(item.nome))
+          .replace(/\{primeiro\}/g, nomeBonito(item.nome).split(" ")[0] ?? ""),
+        corpo: corpoDoEmail(nomeBonito(item.nome), mes, corpo.texto, tratamento),
         anexo: {
           nome: `Holerite ${mes.replace("/", "-")} - ${nomeBonito(item.nome)}.pdf`,
           conteudo: item.pdf,
@@ -256,6 +274,17 @@ export function rotasDeRh(): Router {
         });
       }
     }
+
+    await registrarEnvio({
+      quando: new Date().toISOString(),
+      mes,
+      envios: resultados.map((r) => ({
+        nome: nomeBonito(r.nome),
+        email: r.email,
+        ok: r.ok,
+        erro: r.erro,
+      })),
+    });
 
     console.log(
       `[rh] envio de ${mes}: ${resultados.filter((x) => x.ok).length} ok, ` +
@@ -297,6 +326,11 @@ const PAGINA = `<!doctype html>
   label { display:block; font-size:13px; color:var(--fraca); margin-bottom:6px; }
   input[type=password], input[type=text], input[type=email] { width:100%; padding:9px 10px; border:1px solid var(--linha); border-radius:7px; font:inherit; background:#fff; }
   input[type=file] { font:inherit; }
+  textarea { width:100%; padding:9px 10px; border:1px solid var(--linha); border-radius:7px; font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; background:#fff; resize:vertical; }
+  details { border-top:1px solid var(--linha); padding:8px 0; }
+  details summary { cursor:pointer; font-size:14px; }
+  details table { margin-top:8px; }
+  .etiqueta { font-size:11px; border:1px solid var(--linha); border-radius:99px; padding:1px 7px; color:var(--fraca); }
   button { font:inherit; padding:9px 16px; border-radius:7px; border:1px solid var(--tinta); background:var(--tinta); color:#fff; cursor:pointer; }
   button.secundario { background:#fff; color:var(--tinta); }
   button:disabled { opacity:.45; cursor:default; }
@@ -339,10 +373,21 @@ const PAGINA = `<!doctype html>
       <div class="rodape"><button id="btAnalisar">Separar por funcionário</button><span id="msgPdf" class="sub"></span></div>
     </section>
 
+    <section id="historico" class="oculto">
+      <h2>Envios anteriores</h2>
+      <div id="listaHistorico"></div>
+    </section>
+
     <section id="resultado" class="oculto">
       <h2>Conferência</h2>
       <p class="sub" id="resumo"></p>
       <div style="max-width:220px"><label for="mes">Mês de referência</label><input id="mes" type="text"></div>
+      <div style="margin-top:12px"><label for="assunto">Assunto</label><input id="assunto" type="text"></div>
+      <div style="margin-top:12px">
+        <label for="texto">Texto do e-mail — marcadores: {tratamento} {primeiro} {nome} {mes}</label>
+        <textarea id="texto" rows="8"></textarea>
+        <p class="sub" id="previa"></p>
+      </div>
       <table id="tabela">
         <thead><tr><th></th><th>Funcionário</th><th>E-mail</th><th>Trat.</th><th>Pág.</th><th></th></tr></thead>
         <tbody></tbody>
@@ -379,6 +424,11 @@ $('#btEntrar').onclick = async () => {
     $('#estadoCadastro').textContent = e.cadastro
       ? e.cadastro + ' pessoa(s) no cadastro · envio por ' + (e.envio || 'nada configurado')
       : 'Nenhum cadastro ainda — suba o CSV com nome e e-mail.';
+    $('#assunto').value = e.assunto;
+    $('#texto').value = e.corpo;
+    $('#texto').addEventListener('input', previa);
+    $('#mes').addEventListener('input', previa);
+    await carregarHistorico();
   } catch (e) { $('#erroLogin').textContent = e.message; }
 };
 $('#senha').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') $('#btEntrar').click(); });
@@ -422,6 +472,7 @@ function desenhar() {
   if (lote.paginasRepetidas.length) pend.push('páginas repetidas (contadas uma vez): ' + lote.paginasRepetidas.join(', '));
   $('#resumo').textContent = lote.itens.length + ' holerite(s) em ' + lote.totalDePaginas + ' página(s)'
     + (pend.length ? ' · ' + pend.join(' · ') : '');
+  previa();
 
   const corpo = $('#tabela tbody');
   corpo.innerHTML = '';
@@ -429,14 +480,48 @@ function desenhar() {
     const tr = document.createElement('tr');
     if (!i.email) tr.className = 'pendente';
     tr.innerHTML =
-      '<td><input type="checkbox" data-id="' + i.id + '"' + (i.email ? ' checked' : '') + '></td>' +
-      '<td>' + i.nome + '</td>' +
+      '<td><input type="checkbox" data-id="' + i.id + '"' + (i.email && !i.jaRecebeu ? ' checked' : '') + '></td>' +
+      '<td>' + bonito(i.nome) + (i.jaRecebeu ? ' <span class="etiqueta">já recebeu este mês</span>' : '') + '</td>' +
       '<td><input type="email" value="' + (i.email || '') + '" placeholder="sem cadastro" data-email="' + i.id + '"></td>' +
       '<td><select data-trat="' + i.id + '"><option' + (i.tratamento === 'Prezada' ? ' selected' : '') + '>Prezada</option><option' + (i.tratamento === 'Prezado' ? ' selected' : '') + '>Prezado</option></select></td>' +
       '<td>' + i.paginas.join(', ') + '</td>' +
       '<td><a href="/rh/pdf/' + lote.id + '/' + i.id + '" target="_blank">ver</a></td>';
     corpo.appendChild(tr);
   }
+}
+
+function previa() {
+  const nome = (lote && lote.itens[0] && bonito(lote.itens[0].nome)) || 'Maria Aparecida Silva';
+  const trat = (lote && lote.itens[0] && lote.itens[0].tratamento) || 'Prezada';
+  $('#previa').textContent = 'Prévia: ' + $('#texto').value
+    .replace(/\{tratamento\}/g, trat)
+    .replace(/\{primeiro\}/g, nome.split(' ')[0])
+    .replace(/\{nome\}/g, nome)
+    .replace(/\{mes\}/g, $('#mes').value || 'Agosto/2026');
+}
+
+function bonito(n) {
+  const miudas = ['de','da','do','das','dos','e'];
+  return n.toLowerCase().split(/\s+/)
+    .map((p, i) => (i > 0 && miudas.includes(p)) ? p : p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ');
+}
+
+async function carregarHistorico() {
+  const h = await api('/historico');
+  const alvo = $('#listaHistorico');
+  if (!h.lotes.length) { $('#historico').classList.remove('oculto'); alvo.innerHTML = '<p class="sub">Nada enviado ainda por aqui.</p>'; return; }
+  $('#historico').classList.remove('oculto');
+  alvo.innerHTML = h.lotes.map((l) => {
+    const ok = l.envios.filter((e) => e.ok).length;
+    const falhas = l.envios.length - ok;
+    const data = new Date(l.quando).toLocaleString('pt-BR');
+    return '<details><summary><b>' + l.mes + '</b> · ' + data + ' · ' + ok + ' enviado(s)'
+      + (falhas ? ' · <span class="aviso">' + falhas + ' falha(s)</span>' : '') + '</summary>'
+      + '<table><tbody>' + l.envios.map((e) => '<tr><td>' + e.nome + '</td><td>' + e.email
+      + '</td><td>' + (e.ok ? '<span class="ok">enviado</span>' : '<span class="aviso">' + (e.erro || 'falhou') + '</span>')
+      + '</td></tr>').join('') + '</tbody></table></details>';
+  }).join('');
 }
 
 function mesBonito(m) {
@@ -456,11 +541,18 @@ $('#btEnviar').onclick = async () => {
   $('#btEnviar').disabled = true;
   $('#msgEnvio').textContent = 'enviando…';
   try {
-    const r = await api('/enviar', { lote: lote.id, mes: $('#mes').value, envios });
+    const r = await api('/enviar', {
+      lote: lote.id,
+      mes: $('#mes').value,
+      assunto: $('#assunto').value,
+      texto: $('#texto').value,
+      envios,
+    });
     const ok = r.resultados.filter((x) => x.ok).length;
     const falhas = r.resultados.filter((x) => !x.ok);
     $('#msgEnvio').innerHTML = '<span class="ok">' + ok + ' enviado(s)</span>'
       + (falhas.length ? ' · <span class="aviso">' + falhas.length + ' falha(s): ' + falhas.map((f) => f.nome + ' (' + f.erro + ')').join('; ') + '</span>' : '');
+    await carregarHistorico();
   } catch (e) { $('#msgEnvio').textContent = e.message; }
   $('#btEnviar').disabled = false;
 };

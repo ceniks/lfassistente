@@ -261,6 +261,20 @@ const schema = z.object({
   /** Senha da página de holerites. Sem ela a página fica desligada. */
   RH_SENHA: opcional(z.string()),
 
+  /**
+   * Texto do e-mail do holerite. Marcadores: {tratamento}, {primeiro}, {nome}
+   * e {mes}. Fica aqui para poder mudar sem deploy; a página ainda deixa
+   * editar antes de cada envio.
+   */
+  HOLERITE_CORPO: z
+    .string()
+    .default(
+      "{tratamento} {primeiro},\n\n" +
+        "Segue em anexo seu holerite referente ao mês de {mes}.\n\n" +
+        "Agradecemos o seu empenho e dedicação!\n\n" +
+        "Atenciosamente,\nL E FASHION EIRELI\n",
+    ),
+
   // --- MCPs próprios ---
   ATENDEPRO_MCP_URL: opcional(url()),
   ATENDEPRO_TOKEN: opcional(z.string()),

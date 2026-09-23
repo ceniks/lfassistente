@@ -224,3 +224,18 @@ o container reiniciar, sobe o CSV de novo.
 
 Nenhum holerite é gravado em disco no servidor. O lote vive na memória por duas
 horas e some.
+
+O que fica gravado é o **registro de envios** (`dados/envios-holerite.json`):
+mês, data, quem recebeu e se deu certo. A página mostra isso em "Envios
+anteriores" e usa para marcar quem já recebeu no mês, deixando a linha
+desmarcada.
+
+**Para o registro sobreviver a deploy**, monte um volume no Railway (Service →
+Settings → Volumes) em `/app/dados`. Sem volume o arquivo some a cada build, e
+o histórico recomeça — os e-mails em si continuam na caixa "Enviados" da conta
+do Gmail, que é a prova durável.
+
+Assunto e texto do e-mail vêm de `HOLERITE_ASSUNTO` e `HOLERITE_CORPO`, com os
+marcadores `{tratamento}`, `{primeiro}`, `{nome}` e `{mes}`. A página carrega
+esses modelos em campos editáveis: dá para ajustar o texto de um mês específico
+sem mexer em variável nenhuma.

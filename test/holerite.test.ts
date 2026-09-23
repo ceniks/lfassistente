@@ -68,3 +68,39 @@ describe('mês de referência', () => {
     expect(mesDeReferencia('arquivo.pdf', new Date('2026-10-05T12:00:00-03:00'))).toBe('setembro de 2026');
   });
 });
+
+describe('histórico de envio', () => {
+  it('reconhece o mesmo mês escrito de formas diferentes', async () => {
+    const { chaveDeNome } = await import('../src/rh/historico.js');
+    expect(chaveDeNome('  Célia   Aparecida ')).toBe('celia aparecida');
+  });
+});
+
+describe('corpo do e-mail', () => {
+  it('troca os marcadores', async () => {
+    const { corpoDoEmail } = await import('../src/rh/fluxo.js');
+    const texto = corpoDoEmail('Ronierik Paulino Dias', 'Agosto/2026', '{tratamento} {primeiro}, mês {mes}, nome {nome}.');
+    expect(texto).toBe('Prezado Ronierik, mês Agosto/2026, nome Ronierik Paulino Dias.');
+  });
+
+  it('respeita o tratamento escolhido à mão', async () => {
+    const { corpoDoEmail } = await import('../src/rh/fluxo.js');
+    expect(corpoDoEmail('Aline Bueno', 'Agosto/2026', '{tratamento}', 'Prezado')).toBe('Prezado');
+  });
+});
+
+describe('tratamento', () => {
+  it('acerta nomes femininos terminados em e', async () => {
+    const { tratamentoDe } = await import('../src/rh/fluxo.js');
+    for (const n of ['Aline Bueno', 'Daiane Michele', 'Marilene Pires', 'Rosinete Dos Santos']) {
+      expect(tratamentoDe(n)).toBe('Prezada');
+    }
+  });
+
+  it('acerta os masculinos da folha', async () => {
+    const { tratamentoDe } = await import('../src/rh/fluxo.js');
+    for (const n of ['Ronierik Paulino', 'José Antonio', 'Silvio Cesar', 'Bruno Santos']) {
+      expect(tratamentoDe(n)).toBe('Prezado');
+    }
+  });
+});

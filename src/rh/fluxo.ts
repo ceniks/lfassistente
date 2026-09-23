@@ -192,14 +192,24 @@ export function tratamentoDe(nome: string): "Prezado" | "Prezada" {
   return "Prezado";
 }
 
-export function corpoDoEmail(nome: string, mes: string): string {
+/**
+ * O texto do e-mail, com os marcadores trocados.
+ *
+ * O modelo vem de `HOLERITE_CORPO` e a página pode mandar outro no lugar — é o
+ * mesmo texto para todo mundo, mas nome, tratamento e mês mudam em cada um.
+ */
+export function corpoDoEmail(
+  nome: string,
+  mes: string,
+  modelo?: string,
+  tratamento?: "Prezado" | "Prezada",
+): string {
   const primeiro = nome.split(" ")[0] ?? "";
-  return (
-    `${tratamentoDe(nome)} ${primeiro},\n\n` +
-    `Segue em anexo seu holerite referente ao mês de ${mes}.\n\n` +
-    "Agradecemos o seu empenho e dedicação!\n\n" +
-    "Atenciosamente,\nL E FASHION EIRELI\n"
-  );
+  return (modelo || config().HOLERITE_CORPO)
+    .replace(/\{tratamento\}/g, tratamento ?? tratamentoDe(nome))
+    .replace(/\{primeiro\}/g, primeiro)
+    .replace(/\{nome\}/g, nome)
+    .replace(/\{mes\}/g, mes);
 }
 
 export interface Resultado {
