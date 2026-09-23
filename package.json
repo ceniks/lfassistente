@@ -27,15 +27,21 @@
     "conferir-estorno-pdf": "tsx --env-file-if-exists=.env src/cli/conferir-estorno-pdf.ts",
     "pagbank-teste": "tsx --env-file-if-exists=.env src/cli/pagbank-teste.ts",
     "pagarme-teste": "tsx --env-file-if-exists=.env src/cli/pagarme-teste.ts",
-    "mercadopago-teste": "tsx --env-file-if-exists=.env src/cli/mercadopago-teste.ts"
+    "mercadopago-teste": "tsx --env-file-if-exists=.env src/cli/mercadopago-teste.ts",
+    "holerite": "tsx --env-file-if-exists=.env src/cli/holerite.ts",
+    "smtp-teste": "tsx --env-file-if-exists=.env src/cli/smtp-teste.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "@anthropic-ai/sdk": "^0.125.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/nodemailer": "^8.0.2",
     "express": "^5.1.0",
     "googleapis": "^144.0.0",
     "node-cron": "^3.0.3",
+    "nodemailer": "^10.0.10",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289",
     "pdfkit": "^0.20.2",
     "zod": "^3.24.1"
   },

@@ -236,6 +236,22 @@ const schema = z.object({
   METAS_SPREADSHEET_ID: opcional(z.string()),
   METAS_RANGE: z.string().default("Metas!A:B"),
 
+  // --- Holerites (mesma service account das metas) ---
+  /** Planilha com nome, e-mail e apelido de cada funcionária. */
+  RH_SPREADSHEET_ID: opcional(z.string()),
+  RH_RANGE: z.string().default("Funcionarios!A:C"),
+
+  // --- Envio de e-mail (Gmail da empresa, senha de app) ---
+  SMTP_HOST: z.string().default("smtp.gmail.com"),
+  SMTP_PORT: z.coerce.number().int().positive().default(465),
+  SMTP_USER: opcional(z.string()),
+  /** Senha de app do Google, não a senha da conta. */
+  SMTP_PASSWORD: opcional(z.string()),
+  /** Remetente exibido; vazio usa o próprio SMTP_USER. */
+  SMTP_FROM: z.string().default(""),
+  /** `{mes}` vira "setembro de 2026" no assunto do e-mail. */
+  HOLERITE_ASSUNTO: z.string().default("Seu holerite — {mes}"),
+
   // --- MCPs próprios ---
   ATENDEPRO_MCP_URL: opcional(url()),
   ATENDEPRO_TOKEN: opcional(z.string()),

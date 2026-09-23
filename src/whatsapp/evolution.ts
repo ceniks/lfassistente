@@ -58,6 +58,22 @@ export async function enviarDocumento(
 }
 
 /**
+ * Baixa o arquivo de uma mensagem recebida.
+ *
+ * A Evolution não entrega o conteúdo no webhook: o evento traz só a chave da
+ * mensagem, e o arquivo vem desta chamada, em base64. Vale para PDF, imagem e
+ * áudio — aqui só o PDF interessa.
+ */
+export async function baixarMidia(mensagem: unknown): Promise<Buffer> {
+  const r = await post<{ base64?: string }>(
+    `/chat/getBase64FromMediaMessage/${exigir('EVOLUTION_INSTANCE')}`,
+    { message: mensagem, convertToMp4: false },
+  );
+  if (!r.base64) throw new Error('a Evolution não devolveu o arquivo');
+  return Buffer.from(r.base64, 'base64');
+}
+
+/**
  * Manda para todos os números autorizados.
  *
  * Em série e sem parar no primeiro erro: se um dos telefones estiver fora do ar,

@@ -1,6 +1,14 @@
 import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
-import { enviarTexto, enviarDocumento, estadoDaInstancia } from './evolution.js';
+import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
+import {
+  descartarLote,
+  enviarLote,
+  loteDe,
+  pendenciasDeConfiguracao,
+  prepararLote,
+  resumoDoLote,
+} from '../rh/fluxo.js';
 import { perguntar } from '../agent/runner.js';
 import { gerarBoletim, pedidoDeBoletim } from '../relatorio/index.js';
 import { ultimaTentativa } from '../digest/estado.js';
@@ -29,6 +37,10 @@ interface EventoEvolution {
     message?: {
       conversation?: string;
       extendedTextMessage?: { text?: string };
+      documentMessage?: { fileName?: string; mimetype?: string };
+      documentWithCaptionMessage?: {
+        message?: { documentMessage?: { fileName?: string; mimetype?: string } };
+      };
     };
     pushName?: string;
   };
@@ -112,12 +124,25 @@ async function tratar(req: Request): Promise<void> {
     }
   }
 
+  const documento =
+    evento.data?.message?.documentMessage ??
+    evento.data?.message?.documentWithCaptionMessage?.message?.documentMessage;
+
+  if (documento) {
+    await tratarDocumento(quem, evento, documento);
+    return;
+  }
+
   const texto =
     evento.data?.message?.conversation ??
     evento.data?.message?.extendedTextMessage?.text ??
     '';
 
   if (!texto.trim()) return;
+
+  // Confirmação de holerite antes de qualquer outra coisa: quem respondeu
+  // "confirmo" está respondendo a uma pergunta, não abrindo assunto novo.
+  if (loteDe(quem) && (await tratarConfirmacao(quem, texto))) return;
 
   console.log(`[webhook] pergunta: ${texto.slice(0, 120)}`);
 
@@ -142,6 +167,73 @@ async function tratar(req: Request): Promise<void> {
   if (resposta.ferramentasUsadas.length) {
     console.log(`[webhook] usou: ${resposta.ferramentasUsadas.join(', ')}`);
   }
+}
+
+/**
+ * PDF recebido: divide por funcionária e devolve a lista para conferência.
+ *
+ * Nada é enviado aqui. O lote fica esperando o "confirmo" — ver `src/rh/fluxo.ts`.
+ */
+async function tratarDocumento(
+  quem: string,
+  evento: EventoEvolution,
+  documento: { fileName?: string; mimetype?: string },
+): Promise<void> {
+  const nome = documento.fileName ?? 'arquivo.pdf';
+
+  if (!/pdf/i.test(documento.mimetype ?? '') && !/\.pdf$/i.test(nome)) {
+    await enviarTexto(quem, 'Recebi o arquivo, mas só sei tratar PDF de holerite por enquanto.');
+    return;
+  }
+
+  const falta = pendenciasDeConfiguracao();
+  if (falta.length) {
+    await enviarTexto(quem, `Antes de mexer em holerite falta configurar ${falta.join(' e ')}.`);
+    return;
+  }
+
+  await enviarTexto(quem, `📄 Recebi *${nome}*. Separando por funcionária…`);
+
+  try {
+    const lote = await prepararLote(quem, await baixarMidia(evento.data), nome);
+    await enviarTexto(quem, resumoDoLote(lote));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[holerite] falhou:', e);
+    await enviarTexto(quem, `Não consegui separar o PDF: ${msg.slice(0, 300)}`);
+  }
+}
+
+/** Responde "confirmo" e "cancelar". Devolve false se o texto era outra coisa. */
+async function tratarConfirmacao(quem: string, texto: string): Promise<boolean> {
+  const t = texto
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+
+  if (/^(cancela|cancelar|deixa|esquece)/.test(t)) {
+    descartarLote(quem);
+    await enviarTexto(quem, 'Descartei o lote. Nada foi enviado.');
+    return true;
+  }
+
+  if (!/^(confirmo|confirmar|pode enviar|envia|enviar|pode mandar)\b/.test(t)) return false;
+
+  await enviarTexto(quem, 'Enviando…');
+  try {
+    const r = await enviarLote(quem);
+    const linhas = [`✅ Enviados: ${r.enviados.length}`];
+    if (r.falhas.length) {
+      linhas.push(`⚠️ Falharam: ${r.falhas.length}`);
+      for (const f of r.falhas) linhas.push(`• ${f.nome} (${f.email}): ${f.erro.slice(0, 120)}`);
+    }
+    await enviarTexto(quem, linhas.join('\n'));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await enviarTexto(quem, `Não consegui enviar: ${msg.slice(0, 300)}`);
+  }
+  return true;
 }
 
 /**
