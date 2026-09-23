@@ -40,6 +40,7 @@ import {
   conferirPagosAMao,
   type ConferenciaManual,
 } from "../data/conferencia-manual.js";
+import { conferirPixDireto, type ConferenciaPix } from "../data/conferencia-pix.js";
 
 /**
  * O material do boletim completo.
@@ -100,6 +101,8 @@ export interface DadosRelatorio {
   mercadopago: ConferenciaPagBank | null;
   /** Conferência dos pedidos pagos à mão contra a Pagar.me. */
   manual: ConferenciaManual | null;
+  /** O Pix que caiu direto na conta, casado com o pedido. */
+  pix: ConferenciaPix | null;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
   media7dPorHora: MediaDaHora[];
   margem: Margem;
@@ -211,6 +214,10 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     opcional("pagos à mão", () => conferirPagosAMao(dia)),
   ]);
 
+  // Depende do resultado do manual: só o que a Pagar.me não explicou é
+  // procurado no extrato.
+  const pix = await opcional("pix direto", () => conferirPixDireto(dia, manual));
+
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
   // sábado com a média que inclui terça esconde o padrão em vez de revelar.
   const seteAtras = serie.find((p) => p.dia === diasAntes(dia, 7)[6]) ?? null;
@@ -252,6 +259,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     pagbank,
     mercadopago,
     manual,
+    pix,
     media7dPorHora,
     margem: margemDoDia(
       vendas,

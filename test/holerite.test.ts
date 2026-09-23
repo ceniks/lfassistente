@@ -104,3 +104,21 @@ describe('tratamento', () => {
     }
   });
 });
+
+describe('conferência do Pix direto', () => {
+  it('casa o e-mail com o nome de quem pagou', async () => {
+    const { emailBateComNome } = await import('../src/data/conferencia-pix.js');
+    expect(emailBateComNome('marquesesther@yahoo.com.br', 'ESTHER SIQUEIRA MONTEIRO MARQUES')).toBe(true);
+    expect(emailBateComNome('lorenanunes@gmail.com', 'LORENA NUNES DO AMARAL PADIM')).toBe(true);
+  });
+
+  it('não casa por um sobrenome comum sozinho', async () => {
+    const { emailBateComNome } = await import('../src/data/conferencia-pix.js');
+    expect(emailBateComNome('silva123@gmail.com', 'JOAO DA SILVA')).toBe(false);
+  });
+
+  it('não casa e-mail genérico com qualquer pagador', async () => {
+    const { emailBateComNome } = await import('../src/data/conferencia-pix.js');
+    expect(emailBateComNome('contato@empresa.com', 'MARIA APARECIDA SOUZA')).toBe(false);
+  });
+});

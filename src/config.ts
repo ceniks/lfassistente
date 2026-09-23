@@ -268,6 +268,9 @@ const schema = z.object({
    */
   MCP_AI_KEY: opcional(z.string()),
 
+  /** Id da conta cujo extrato confere o Pix. Vazio: a conta corrente do PagBank. */
+  OPENFINANCE_CONTA: opcional(z.string()),
+
   /**
    * Texto do e-mail do holerite. Marcadores: {tratamento}, {primeiro}, {nome}
    * e {mes}. Fica aqui para poder mudar sem deploy; a página ainda deixa

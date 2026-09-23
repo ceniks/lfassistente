@@ -1056,6 +1056,103 @@ const SITUACAO: Record<string, string> = {
   "pix-direto": "não verificável",
 };
 
+/**
+ * O Pix que caiu direto na conta.
+ *
+ * Vem logo depois das vendas pagas à mão porque é a resposta delas: aquele
+ * bloco diz quanto foi marcado como pago sem cobrança em gateway, este diz
+ * quanto desse dinheiro apareceu no extrato do banco. O que sobra dos dois é a
+ * única parte do faturamento que ninguém consegue provar.
+ */
+/** "2026-09-22 10:50:52" -> "22/09 10:50". */
+function horaBrasileira(quando: string): string {
+  const [data, hora = ""] = quando.split(" ");
+  const [, m, dd] = data.split("-");
+  return `${dd}/${m} ${hora.slice(0, 5)}`.trim();
+}
+
+function secaoPixDireto(doc: Doc, d: DadosRelatorio) {
+  const p = d.pix;
+  if (!p) return;
+
+  titulo(doc, "Pix direto na conta");
+
+  linha(
+    doc,
+    "Entradas por Pix no dia",
+    numero(p.entradas.quantidade),
+    `${dinheiro(p.entradas.valor)} — inclui o que não é venda: aporte, transferência, reembolso de fornecedor`,
+  );
+  linha(
+    doc,
+    "Pedidos achados no extrato",
+    dinheiro(p.valorCasado),
+    `${numero(p.casados.length)} pedido(s) pagos à mão com o Pix localizado`,
+    p.casados.length ? BOM : TINTA,
+  );
+  linha(
+    doc,
+    "Sem contrapartida em lugar nenhum",
+    dinheiro(p.valorSemContrapartida),
+    p.valorSemContrapartida > 0
+      ? `${numero(p.semContrapartida.length)} pedido(s) — nem gateway, nem extrato`
+      : "todo pedido pago do dia tem onde ser conferido",
+    p.valorSemContrapartida > 0 ? RUIM : BOM,
+  );
+
+  if (p.casados.length) {
+    tabela(
+      doc,
+      ["Pedido", "Quando o Pix caiu", "Quem pagou", "Situação", "Valor"],
+      p.casados.map((l) => [
+        l.pedido,
+        l.pix ? horaBrasileira(l.pix.quando) : "",
+        cortar(doc, l.pix?.quem ?? "", LARGURA - 346, "Helvetica", 8.5),
+        l.situacao === "confirmado" ? "nome confere" : "só pelo valor",
+        dinheiro(l.valor),
+      ]),
+      [62, 92, LARGURA - 340, 96, 90],
+      ["left", "left", "left", "left", "right"],
+    );
+  }
+
+  if (p.semContrapartida.length) {
+    tabela(
+      doc,
+      ["Pedido", "Método declarado", "O que houve", "Valor"],
+      p.semContrapartida.map((l) => [
+        l.pedido,
+        l.metodo,
+        l.situacao === "ambiguo"
+          ? `${numero(l.candidatos)} Pix do mesmo valor — precisa de olho`
+          : "nenhum Pix desse valor na conta",
+        dinheiro(l.valor),
+      ]),
+      [62, 100, LARGURA - 252, 90],
+      ["left", "left", "left", "right"],
+    );
+  }
+
+  if (p.entradasSemPedido.length) {
+    linha(
+      doc,
+      "Pix sem pedido correspondente",
+      numero(p.entradasSemPedido.length),
+      `${dinheiro(p.entradasSemPedido.reduce((s, e) => s + e.valor, 0))} — valores de tamanho de pedido que ninguém reivindicou`,
+      TINTA3,
+    );
+  }
+
+  paragrafo(
+    doc,
+    "O casamento é por valor, dentro de três dias, porque o Pix chega antes ou depois do pedido ser " +
+      "lançado. Quando o nome de quem pagou conversa com o e-mail da cliente, a linha sai como " +
+      "confirmada; quando não, fica como provável — marido paga a compra da esposa com frequência. " +
+      "Dois pedidos do mesmo valor no mesmo período viram pendência em vez de palpite.",
+    TINTA3,
+  );
+}
+
 function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
   const m = d.manual;
   if (!m) return;
@@ -2276,6 +2373,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoTrocasPagas(doc, d);
     secaoPagamento(doc, d);
     secaoPagosAMao(doc, d);
+    secaoPixDireto(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
     secaoTrocas(doc, d);
