@@ -139,6 +139,18 @@ export async function cobrancasPorReferencia(
  * ------------------------------------------------------------------------ */
 
 const LEGADO = "https://ws.pagseguro.uol.com.br/v3/transactions";
+
+/** 23:59:59 do dia, ou o instante atual quando o dia ainda não acabou. */
+function finalDoDia(dia: string): string {
+  const agora = new Date();
+  const hoje = agora.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  if (dia < hoje) return `${dia}T23:59:59`;
+  const hora = agora.toLocaleTimeString("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    hour12: false,
+  });
+  return `${dia}T${hora}`;
+}
 /** A busca aceita até 100 por página. */
 const POR_PAGINA = 100;
 
@@ -174,7 +186,10 @@ async function paginaLegado(dia: string, pagina: number): Promise<string> {
     token,
     // Sem fuso: a API antiga interpreta no horário de Brasília, que é o que queremos.
     initialDate: `${dia}T00:00:00`,
-    finalDate: `${dia}T23:59:59`,
+    // Pedir 23:59 do dia de hoje devolve 400 ("finalDate must be lower than
+    // allowed limit"): a API antiga recusa data no futuro. Para o dia corrente
+    // o teto é agora.
+    finalDate: finalDoDia(dia),
     page: String(pagina),
     maxPageResults: String(POR_PAGINA),
   });

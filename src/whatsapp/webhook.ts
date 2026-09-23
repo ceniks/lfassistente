@@ -63,7 +63,22 @@ export function criarApp() {
   // Estado de quem depende de coisa externa: a conexão do WhatsApp e a última
   // tentativa de resumo. Manhã sem boletim se explica aqui, sem abrir painel.
   app.get('/diag', async (_req, res) => {
+    // Só sim/não: o que está configurado neste ambiente. Existe porque um bloco
+    // sumido do boletim é indistinguível de fonte com credencial faltando, e
+    // ler variável do painel do Railway é lento e fácil de errar.
+    const c = config();
+    const integracoes = {
+      pagbank: Boolean(c.PAGBANK_TOKEN && c.PAGBANK_EMAIL),
+      pagbankTokenAntigo: Boolean(c.PAGBANK_TOKEN_ANTIGO),
+      mercadopago: Boolean(c.MERCADOPAGO_TOKEN),
+      pagarme: Boolean(c.PAGARME_TOKEN),
+      googleAds: Boolean(c.GOOGLE_ADS_REFRESH_TOKEN),
+      gmail: Boolean(c.GMAIL_REFRESH_TOKEN),
+      troque: Boolean(c.TROQUE_TOKEN),
+      paginaDeRh: Boolean(c.RH_SENHA),
+    };
     res.json({
+      integracoes,
       commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'desconhecido',
       agora: new Date().toISOString(),
       fuso: config().TZ,
