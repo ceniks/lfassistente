@@ -20,6 +20,7 @@ import {
   type Funcionaria,
 } from "./cadastro.js";
 import { enviarEmail, temEnvioDeEmail } from "./email.js";
+import { enviarPeloGmail, temGmail } from "./gmail.js";
 import { config } from "../config.js";
 
 export interface Destinatario {
@@ -165,6 +166,42 @@ export function resumoDoLote(lote: Lote): string {
   return linhas.join("\n");
 }
 
+/**
+ * O texto do e-mail, no formato que a L&F usa.
+ *
+ * O tratamento vem do primeiro nome. O palpite por terminação erra em nomes
+ * como Nicolly e Myrella, então a lista de exceções existe e cresce com a
+ * realidade — e na página de RH cada linha pode ser corrigida à mão antes de
+ * enviar.
+ */
+const ELES = new Set(["jose", "silvio", "ronierik", "augusto", "bruno", "antonio", "carlos", "joao", "luis", "luiz", "pedro", "paulo", "marcos", "rafael", "thiago", "tiago", "felipe", "andre", "eduardo", "gabriel", "matheus", "lucas", "daniel", "fernando", "roberto", "ricardo", "rodrigo", "vinicius", "wellington", "wesley", "anderson", "alex", "cesar", "claudio", "douglas", "edson", "fabio", "flavio", "gustavo", "henrique", "igor", "jonas", "julio", "leandro", "leonardo", "marcelo", "mauricio", "nelson", "otavio", "renato", "sergio", "valdir", "wagner", "alexandre", "vicente", "jorge", "jaime", "felipe", "davi", "david", "samuel", "moises", "elias", "israel", "gilberto", "adilson", "nilson"]);
+const ELAS = new Set(["nicolly", "myrella", "mirella", "ester", "esther", "raquel", "isabel", "eliane", "ivete", "lucimar", "meire", "neide", "solange", "elisete", "marlene", "marilene", "rosinete", "nair", "miriam", "mirian", "ines", "luci", "lourdes", "carmen", "leticia", "cris", "jennifer", "jaqueline", "michele", "michelle", "millena", "gabrielly", "emilly", "evelyn", "kelly", "kimberly", "sthefany", "stefany", "yasmin", "nicole", "heloisa", "aline", "daiane", "simone", "luciene", "cristiane", "viviane", "juliane", "roseane", "alice", "beatriz", "ingrid", "karen", "mabel", "mercedes"]);
+
+const semAcento = (s: string) =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
+
+/** Terminações que em português quase sempre são de nome feminino. */
+const FINAIS_DELAS = ["ane", "ene", "iane", "ete", "ite", "elly", "elle", "lly"];
+
+export function tratamentoDe(nome: string): "Prezado" | "Prezada" {
+  const primeiro = semAcento(nome.split(" ")[0] ?? "");
+  if (ELES.has(primeiro)) return "Prezado";
+  if (ELAS.has(primeiro)) return "Prezada";
+  if (primeiro.endsWith("a")) return "Prezada";
+  if (FINAIS_DELAS.some((f) => primeiro.endsWith(f))) return "Prezada";
+  return "Prezado";
+}
+
+export function corpoDoEmail(nome: string, mes: string): string {
+  const primeiro = nome.split(" ")[0] ?? "";
+  return (
+    `${tratamentoDe(nome)} ${primeiro},\n\n` +
+    `Segue em anexo seu holerite referente ao mês de ${mes}.\n\n` +
+    "Agradecemos o seu empenho e dedicação!\n\n" +
+    "Atenciosamente,\nL E FASHION EIRELI\n"
+  );
+}
+
 export interface Resultado {
   enviados: string[];
   falhas: Array<{ nome: string; email: string; erro: string }>;
@@ -180,15 +217,16 @@ export async function enviarLote(quem: string): Promise<Resultado> {
 
   for (const d of lote.prontos) {
     try {
-      await enviarEmail({
+      const mensagem = {
         para: d.email,
-        assunto: c.HOLERITE_ASSUNTO.replace("{mes}", lote.mes),
-        corpo:
-          `Olá, ${d.nome.split(" ")[0]}!\n\n` +
-          `Segue em anexo o seu holerite de ${lote.mes}.\n\n` +
-          "Qualquer dúvida, é só responder este e-mail.\n\nL&F",
+        assunto: c.HOLERITE_ASSUNTO.replace("{mes}", lote.mes).replace("{nome}", d.nome),
+        corpo: corpoDoEmail(d.nome, lote.mes),
         anexo: { nome: arquivoDe(d.nome, lote.mes), conteudo: d.pdf },
-      });
+      };
+      // Gmail quando autorizado; SMTP continua valendo para quem preferir senha
+      // de app.
+      if (temGmail()) await enviarPeloGmail(mensagem);
+      else await enviarEmail(mensagem);
       enviados.push(d.nome);
     } catch (e) {
       falhas.push({
@@ -204,9 +242,9 @@ export async function enviarLote(quem: string): Promise<Resultado> {
 }
 
 /** O que falta configurar para o fluxo funcionar, em linguagem de gente. */
-export function pendenciasDeConfiguracao(): string[] {
+export async function pendenciasDeConfiguracao(): Promise<string[]> {
   const falta: string[] = [];
-  if (!temCadastro()) falta.push("a planilha de funcionárias (RH_SPREADSHEET_ID + service account)");
-  if (!temEnvioDeEmail()) falta.push("o e-mail de envio (SMTP_USER + SMTP_PASSWORD)");
+  if (!(await temCadastro())) falta.push("o cadastro de funcionárias (suba o CSV na página de RH)");
+  if (!temGmail() && !temEnvioDeEmail()) falta.push("a autorização de envio de e-mail");
   return falta;
 }

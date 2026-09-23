@@ -13,8 +13,20 @@
  * A coluna C é opcional: serve quando o nome no holerite é diferente do nome
  * que todo mundo usa. Qualquer uma das duas grafias casa.
  */
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { google } from "googleapis";
 import { config } from "../config.js";
+
+/**
+ * Onde o cadastro enviado pelo site fica guardado.
+ *
+ * A planilha do Google continua valendo e tem preferência quando está
+ * configurada. Mas exigir service account para mandar holerite era uma barreira
+ * grande demais: com o arquivo local, sobe-se o CSV uma vez pela página e
+ * acabou. Ele é descartável — sumiu no deploy, sobe de novo.
+ */
+const ARQUIVO = process.env.CADASTRO_RH ?? "dados/funcionarios.json";
 
 export interface Funcionaria {
   nome: string;
@@ -25,6 +37,8 @@ export interface Funcionaria {
 const TTL = 5 * 60 * 1000;
 let cache: { carregadoEm: number; lista: Funcionaria[] } | null = null;
 
+const PARTICULAS = new Set(["de", "da", "do", "das", "dos", "e"]);
+
 const norm = (s: string) =>
   s
     .normalize("NFD")
@@ -33,16 +47,58 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export function temCadastro(): boolean {
+export function temPlanilha(): boolean {
   const c = config();
   return Boolean(c.GOOGLE_SERVICE_ACCOUNT_JSON && c.RH_SPREADSHEET_ID);
+}
+
+export async function temCadastro(): Promise<boolean> {
+  return (await carregarCadastro()).length > 0;
+}
+
+/**
+ * Lê um CSV de cadastro e guarda no disco.
+ *
+ * Aceita vírgula ou ponto e vírgula, com ou sem aspas e com ou sem cabeçalho —
+ * o arquivo sai de uma exportação de planilha, e cada programa escolhe um
+ * separador. A coluna do e-mail é achada pelo "@", não pela posição, porque
+ * planilha de gente troca a ordem das colunas.
+ */
+export async function salvarCadastroDeCsv(texto: string): Promise<Funcionaria[]> {
+  const lista: Funcionaria[] = [];
+
+  for (const linha of texto.split(/\r?\n/)) {
+    if (!linha.trim()) continue;
+    const campos = linha
+      .split(linha.includes(";") ? ";" : ",")
+      .map((c) => c.trim().replace(/^"|"$/g, "").trim());
+    const email = campos.find((c) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c));
+    const nome = campos.find((c) => c !== email && /\p{L}{2}/u.test(c) && c.split(/\s+/).length >= 2);
+    if (!email || !nome) continue;
+    const apelido = campos.find((c) => c !== email && c !== nome && /\p{L}{2}/u.test(c));
+    lista.push({ nome, email, apelido });
+  }
+
+  await mkdir(dirname(ARQUIVO), { recursive: true });
+  await writeFile(ARQUIVO, JSON.stringify(lista, null, 1));
+  cache = { carregadoEm: Date.now(), lista };
+  return lista;
 }
 
 export async function carregarCadastro(): Promise<Funcionaria[]> {
   if (cache && Date.now() - cache.carregadoEm < TTL) return cache.lista;
 
   const { GOOGLE_SERVICE_ACCOUNT_JSON, RH_SPREADSHEET_ID, RH_RANGE } = config();
-  if (!GOOGLE_SERVICE_ACCOUNT_JSON || !RH_SPREADSHEET_ID) return [];
+
+  if (!GOOGLE_SERVICE_ACCOUNT_JSON || !RH_SPREADSHEET_ID) {
+    try {
+      const lista = JSON.parse(await readFile(ARQUIVO, "utf8")) as Funcionaria[];
+      cache = { carregadoEm: Date.now(), lista };
+      return lista;
+    } catch {
+      return [];
+    }
+  }
 
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON),
@@ -97,18 +153,39 @@ export function acharFuncionaria(
   );
   if (igual) return igual;
 
-  const pontas = (s: string) => {
-    const p = norm(s).split(" ").filter(Boolean);
-    return p.length >= 2 ? `${p[0]} ${p.at(-1)}` : null;
-  };
+  /*
+   * Fora a igualdade, o que resta é sobreposição de sobrenomes — e ela precisa
+   * ser rígida. Na folha de agosto a mesma pessoa aparecia como "ADRIANA DAYANE
+   * DE PAULA VAZ" no holerite e "Adriana Dayane de Paula" na planilha, enquanto
+   * outra funcionária se chama "Nicolly de Paula Vaz". Por isso: primeiro nome
+   * igual, pelo menos dois sobrenomes em comum, um lado contido no outro (ou
+   * faltando no máximo um sobrenome), e uma única candidata. Qualquer dúvida
+   * vira pendência em vez de palpite.
+   */
+  const pedacos = (s: string) =>
+    norm(s)
+      .split(" ")
+      .filter((p) => p && !PARTICULAS.has(p));
 
-  const alvoPontas = pontas(nome);
-  if (!alvoPontas) return null;
+  const alvoPedacos = pedacos(nome);
+  if (alvoPedacos.length < 2) return null;
 
-  const candidatas = lista.filter(
-    (f) => pontas(f.nome) === alvoPontas || (f.apelido && pontas(f.apelido) === alvoPontas),
-  );
-  // Duas candidatas com as mesmas pontas é ambiguidade real — melhor cair na
-  // lista de pendências do que sortear.
-  return candidatas.length === 1 ? candidatas[0] : null;
+  const pontuadas = lista
+    .map((f) => {
+      const dela = pedacos(f.apelido && norm(f.apelido) === alvo ? f.apelido : f.nome);
+      if (dela.length < 2 || dela[0] !== alvoPedacos[0]) return null;
+      const comuns = dela.filter((p) => alvoPedacos.includes(p));
+      const contido =
+        dela.every((p) => alvoPedacos.includes(p)) ||
+        alvoPedacos.every((p) => dela.includes(p)) ||
+        comuns.length >= Math.max(dela.length, alvoPedacos.length) - 1;
+      return comuns.length >= 2 && contido ? { f, nota: comuns.length } : null;
+    })
+    .filter((x): x is { f: Funcionaria; nota: number } => x !== null)
+    .sort((a, b) => b.nota - a.nota);
+
+  if (!pontuadas.length) return null;
+  // Empate é ambiguidade real: melhor não enviar do que sortear.
+  if (pontuadas.length > 1 && pontuadas[0].nota === pontuadas[1].nota) return null;
+  return pontuadas[0].f;
 }

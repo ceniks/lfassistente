@@ -258,6 +258,9 @@ const schema = z.object({
    */
   GMAIL_REFRESH_TOKEN: opcional(z.string()),
 
+  /** Senha da página de holerites. Sem ela a página fica desligada. */
+  RH_SENHA: opcional(z.string()),
+
   // --- MCPs próprios ---
   ATENDEPRO_MCP_URL: opcional(url()),
   ATENDEPRO_TOKEN: opcional(z.string()),

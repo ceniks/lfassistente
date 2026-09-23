@@ -203,3 +203,24 @@ npm run digest 2026-09-12 -- --enviar
 E se algo falhar às 8h, o assistente manda uma mensagem dizendo o que quebrou.
 Silêncio significaria que você acharia que o dia foi fraco quando na verdade o
 robô é que não rodou.
+
+## Página de holerites (`/rh`)
+
+Mesmo serviço, rota própria: `https://<app>.up.railway.app/rh`. Sobe o PDF da
+contabilidade, mostra um holerite por funcionário já casado com o cadastro, e
+envia depois de conferir.
+
+Variáveis necessárias no Railway:
+
+| Variável | Para quê |
+|---|---|
+| `RH_SENHA` | senha da página. **Sem ela a página fica desligada** — é melhor não existir do que existir aberta na internet. |
+| `GMAIL_REFRESH_TOKEN` | autorização de envio (escopo `gmail.send`), obtida no mesmo cliente OAuth do Google Ads. |
+
+O cadastro de funcionários entra pela própria página, subindo um CSV com nome e
+e-mail (a planilha do Google continua valendo se `RH_SPREADSHEET_ID` estiver
+configurada). Ele é gravado em `dados/funcionarios.json`, que é descartável: se
+o container reiniciar, sobe o CSV de novo.
+
+Nenhum holerite é gravado em disco no servidor. O lote vive na memória por duas
+horas e some.

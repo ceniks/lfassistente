@@ -10,7 +10,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { dividir, nomeDaPagina, textoPorPagina } from '../rh/divisor.js';
-import { acharFuncionaria, carregarCadastro, temCadastro } from '../rh/cadastro.js';
+import { acharFuncionaria, carregarCadastro } from '../rh/cadastro.js';
 import { mesDeReferencia } from '../rh/fluxo.js';
 
 const caminho = process.argv[2];
@@ -33,7 +33,7 @@ paginas.forEach((t, i) => {
 });
 
 const divisao = await dividir(pdf);
-const cadastro = temCadastro() ? await carregarCadastro() : [];
+const cadastro = await carregarCadastro();
 console.log(`\n${divisao.holerites.length} holerite(s) · cadastro com ${cadastro.length} funcionária(s)\n`);
 
 for (const h of divisao.holerites) {

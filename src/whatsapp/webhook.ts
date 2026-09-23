@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
+import { rotasDeRh } from '../rh/web.js';
 import {
   descartarLote,
   enviarLote,
@@ -52,7 +53,12 @@ const MAX_VISTOS = 500;
 
 export function criarApp() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  // 25 MB: o PDF de holerites sobe em base64 pelo corpo da requisição, e um
+  // mês inteiro de folha passa fácil de 2 MB depois de codificado.
+  app.use(express.json({ limit: '25mb' }));
+
+  // A página de RH: sobe o PDF, confere, envia. Protegida por senha própria.
+  app.use('/rh', rotasDeRh());
 
   // Estado de quem depende de coisa externa: a conexão do WhatsApp e a última
   // tentativa de resumo. Manhã sem boletim se explica aqui, sem abrir painel.
@@ -186,7 +192,7 @@ async function tratarDocumento(
     return;
   }
 
-  const falta = pendenciasDeConfiguracao();
+  const falta = await pendenciasDeConfiguracao();
   if (falta.length) {
     await enviarTexto(quem, `Antes de mexer em holerite falta configurar ${falta.join(' e ')}.`);
     return;

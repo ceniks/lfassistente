@@ -26,6 +26,8 @@ export interface Divisao {
   holerites: Holerite[];
   /** Páginas cujo nome não foi reconhecido — ninguém recebe até serem vistas. */
   paginasSemNome: number[];
+  /** Páginas idênticas a outras: via repetida, contada uma vez só. */
+  paginasRepetidas: number[];
   totalDePaginas: number;
 }
 
@@ -37,6 +39,14 @@ export interface Divisao {
  * empresa, que aparece no cabeçalho de toda folha.
  */
 const PADROES = [
+  /*
+   * Folha em tabela, sem rótulo: a linha é "16 ADRIANA DAYANE DE PAULA VAZ
+   * 763325 0 0 0 1" — código, nome em caixa alta e o CBO de seis dígitos. É o
+   * formato da contabilidade da L&F (conferido no recibo de agosto/2026), e
+   * vem primeiro porque nessa folha a palavra "Nome" é só cabeçalho de coluna:
+   * casar por rótulo pegaria a linha errada.
+   */
+  /^\s*\d{1,6}\s+([A-ZÀ-Ú][A-ZÀ-Ú'.\- ]{4,}?)\s+\d{6}\b/m,
   /nome\s+do\s+funcion[aá]rio[:\s]+([^\n]+)/i,
   /nome\s+d[oa]\s+colaborador[ea]?[:\s]+([^\n]+)/i,
   /funcion[aá]ri[oa]\s*\(?a?\)?[:\s]+([^\n]+)/i,
@@ -119,8 +129,20 @@ export async function dividir(pdf: Buffer): Promise<Divisao> {
 
   const grupos: Array<{ nome: string; paginas: number[] }> = [];
   const paginasSemNome: number[] = [];
+  const paginasRepetidas: number[] = [];
+  const jaVistas = new Set<string>();
 
   paginas.forEach((texto, i) => {
+    // Página idêntica a outra é via repetida, não holerite a mais. No recibo de
+    // agosto/2026 a folha da Aline veio duplicada; sem isto ela receberia o
+    // mesmo contracheque duas vezes no anexo.
+    const assinatura = texto.replace(/\s+/g, " ").trim();
+    if (assinatura && jaVistas.has(assinatura)) {
+      paginasRepetidas.push(i + 1);
+      return;
+    }
+    jaVistas.add(assinatura);
+
     const nome = nomeDaPagina(texto);
     if (!nome) {
       paginasSemNome.push(i + 1);
@@ -151,5 +173,10 @@ export async function dividir(pdf: Buffer): Promise<Divisao> {
     });
   }
 
-  return { holerites, paginasSemNome, totalDePaginas: paginas.length };
+  return {
+    holerites,
+    paginasSemNome,
+    paginasRepetidas,
+    totalDePaginas: paginas.length,
+  };
 }

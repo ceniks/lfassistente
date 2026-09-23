@@ -23,3 +23,9 @@ Claude outputs/
 # Cache de itens de reversa: descartável, reconstrói sozinho.
 dados/reversas-itens.json
 dados/reversas-itens.json.tmp
+
+# Holerites e cadastro de pessoal: dado sensível, nunca no repositório (que é público).
+holerites*/
+funcionarios*.csv
+dados/funcionarios.json
+_enviados.txt
