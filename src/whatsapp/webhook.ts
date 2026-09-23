@@ -76,6 +76,7 @@ export function criarApp() {
       gmail: Boolean(c.GMAIL_REFRESH_TOKEN),
       troque: Boolean(c.TROQUE_TOKEN),
       paginaDeRh: Boolean(c.RH_SENHA),
+      openFinance: Boolean(c.MCP_AI_KEY),
     };
     res.json({
       integracoes,

@@ -262,6 +262,13 @@ const schema = z.object({
   RH_SENHA: opcional(z.string()),
 
   /**
+   * Chave do MCP.AI — dá acesso de leitura ao Open Finance (extrato do PagBank
+   * e do Santander). É o que permite conferir o Pix que cai direto na conta,
+   * sem passar por gateway.
+   */
+  MCP_AI_KEY: opcional(z.string()),
+
+  /**
    * Texto do e-mail do holerite. Marcadores: {tratamento}, {primeiro}, {nome}
    * e {mes}. Fica aqui para poder mudar sem deploy; a página ainda deixa
    * editar antes de cada envio.
