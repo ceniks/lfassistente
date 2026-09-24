@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
 import { rotasDeRh } from '../rh/web.js';
-import { ehDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
+import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
 import {
   descartarLote,
   enviarLote,
@@ -101,6 +101,10 @@ export function criarApp() {
       ultimoResumo: ultimaTentativa(),
       // As últimas tentativas de repasse, em memória. Zera a cada deploy.
       ultimosRepasses: ultimosRepasses(),
+      ultimoEvento: ultimoEventoRecebido(),
+      // Os JIDs que o repasse reconhece. Não é segredo — é grupo — e sem ver a
+      // lista um repasse vazio se confunde com JID escrito errado na variável.
+      jidsDeRepasse: jidsDeRepasse(),
     });
   });
 
@@ -128,9 +132,34 @@ export function criarApp() {
   return app;
 }
 
+/**
+ * O último evento que chegou da Evolution, só em memória.
+ *
+ * Existe para separar duas falhas que de fora parecem a mesma: "a Evolution
+ * não entregou nada" e "entregou, mas o filtro não reconheceu o JID". Sem
+ * isso, um repasse vazio não diz qual dos dois é.
+ */
+let ultimoEvento: { em: string; evento: string | null; jid: string | null; destino: string } | null =
+  null;
+
+export function ultimoEventoRecebido() {
+  return ultimoEvento;
+}
+
 async function tratar(req: Request): Promise<void> {
+  const bruto = req.body as EventoEvolution;
+  const anotarEvento = (destino: string) => {
+    ultimoEvento = {
+      em: new Date().toISOString(),
+      evento: bruto?.event ?? null,
+      jid: bruto?.data?.key?.remoteJid ?? null,
+      destino,
+    };
+  };
+
   const apikey = req.header('apikey') ?? req.header('x-api-key');
   if (apikey !== config().EVOLUTION_API_KEY) {
+    anotarEvento('apikey inválida');
     console.warn('[webhook] apikey inválida, ignorando');
     return;
   }
@@ -147,14 +176,18 @@ async function tratar(req: Request): Promise<void> {
    */
   if (temRepasse()) {
     if (evento.event === 'connection.update') {
+      anotarEvento('repasse');
       await repassar(req.body);
       return;
     }
     if (ehDeRepasse(evento.data?.key?.remoteJid)) {
+      anotarEvento('repasse');
       await repassar(req.body);
       return;
     }
   }
+
+  anotarEvento('tratamento local');
 
   if (evento.event !== 'messages.upsert') return;
 
