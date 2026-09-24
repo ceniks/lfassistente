@@ -1053,23 +1053,10 @@ const SITUACAO: Record<string, string> = {
   exato: "bateu",
   parcial: "pago em parte",
   "sem-rastro": "sem rastro",
-  "pix-direto": "não verificável",
+  // O extrato do Open Finance passou a verificar: a situação final de um Pix
+  // declarado sai do casamento com o banco, não deste rótulo.
+  "pix-direto": "Pix na conta",
 };
-
-/**
- * O Pix que caiu direto na conta.
- *
- * Vem logo depois das vendas pagas à mão porque é a resposta delas: aquele
- * bloco diz quanto foi marcado como pago sem cobrança em gateway, este diz
- * quanto desse dinheiro apareceu no extrato do banco. O que sobra dos dois é a
- * única parte do faturamento que ninguém consegue provar.
- */
-/** "2026-09-22 10:50:52" -> "22/09 10:50". */
-function horaBrasileira(quando: string): string {
-  const [data, hora = ""] = quando.split(" ");
-  const [, m, dd] = data.split("-");
-  return `${dd}/${m} ${hora.slice(0, 5)}`.trim();
-}
 
 /**
  * O fecho das conferências.
@@ -1125,110 +1112,11 @@ function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
   }
 }
 
-function secaoPixDireto(doc: Doc, d: DadosRelatorio) {
-  const p = d.pix;
-  if (!p) return;
-
-  titulo(doc, "Pix direto na conta");
-
-  // Extrato mudo não é extrato limpo: dizer o contrário acusaria o financeiro
-  // de um problema que é da conexão com o banco.
-  if (p.semExtrato) {
-    linha(
-      doc,
-      "Extrato não veio",
-      "sem dados",
-      "a conexão do Open Finance não devolveu lançamento nenhum — o Pix do dia não foi conferido",
-      RUIM,
-    );
-    return;
-  }
-
-  // Extrato parado na véspera transformaria atraso do banco em acusação.
-  if (p.atualizadoAte && p.atualizadoAte.slice(0, 10) < d.dia) {
-    linha(
-      doc,
-      "Extrato atrasado",
-      `até ${p.atualizadoAte.slice(8, 10)}/${p.atualizadoAte.slice(5, 7)}`,
-      "o Open Finance ainda não trouxe os lançamentos do dia — o que aparece abaixo está incompleto",
-      RUIM,
-    );
-  }
-
-  linha(
-    doc,
-    "Entradas por Pix no dia",
-    numero(p.entradas.quantidade),
-    `${dinheiro(p.entradas.valor)} — inclui o que não é venda: aporte, transferência, reembolso de fornecedor`,
-  );
-  linha(
-    doc,
-    "Pedidos achados no extrato",
-    dinheiro(p.valorCasado),
-    `${numero(p.casados.length)} pedido(s) pagos à mão com o Pix localizado`,
-    p.casados.length ? BOM : TINTA,
-  );
-  linha(
-    doc,
-    "Sem contrapartida em lugar nenhum",
-    dinheiro(p.valorSemContrapartida),
-    p.valorSemContrapartida > 0
-      ? `${numero(p.semContrapartida.length)} pedido(s) — nem gateway, nem extrato`
-      : "todo pedido pago do dia tem onde ser conferido",
-    p.valorSemContrapartida > 0 ? RUIM : BOM,
-  );
-
-  if (p.casados.length) {
-    tabela(
-      doc,
-      ["Pedido", "Quando o Pix caiu", "Quem pagou", "Situação", "Valor"],
-      p.casados.map((l) => [
-        l.pedido,
-        l.pix ? horaBrasileira(l.pix.quando) : "",
-        cortar(doc, l.pix?.quem ?? "", LARGURA - 346, "Helvetica", 8.5),
-        l.situacao === "confirmado" ? "nome confere" : "só pelo valor",
-        dinheiro(l.valor),
-      ]),
-      [62, 92, LARGURA - 340, 96, 90],
-      ["left", "left", "left", "left", "right"],
-    );
-  }
-
-  if (p.semContrapartida.length) {
-    tabela(
-      doc,
-      ["Pedido", "Método declarado", "O que houve", "Valor"],
-      p.semContrapartida.map((l) => [
-        l.pedido,
-        l.metodo,
-        l.situacao === "ambiguo"
-          ? `${numero(l.candidatos)} Pix do mesmo valor — precisa de olho`
-          : "nenhum Pix desse valor na conta",
-        dinheiro(l.valor),
-      ]),
-      [62, 100, LARGURA - 252, 90],
-      ["left", "left", "left", "right"],
-    );
-  }
-
-  if (p.entradasSemPedido.length) {
-    linha(
-      doc,
-      "Pix sem pedido correspondente",
-      numero(p.entradasSemPedido.length),
-      `${dinheiro(p.entradasSemPedido.reduce((s, e) => s + e.valor, 0))} — valores de tamanho de pedido que ninguém reivindicou`,
-      TINTA3,
-    );
-  }
-
-  paragrafo(
-    doc,
-    "O casamento é por valor, dentro de três dias, porque o Pix chega antes ou depois do pedido ser " +
-      "lançado. Quando o nome de quem pagou conversa com o e-mail da cliente, a linha sai como " +
-      "confirmada; quando não, fica como provável — marido paga a compra da esposa com frequência. " +
-      "Dois pedidos do mesmo valor no mesmo período viram pendência em vez de palpite.",
-    TINTA3,
-  );
+/** "2026-09-22 15:48:55" -> "22/09 15:48". */
+function horaBrasileira(quando: string): string {
+  const [data, hora = ""] = quando.split(" ");
+  const [, m, dd] = data.split("-");
+  return `${dd}/${m} ${hora.slice(0, 5)}`.trim();
 }
 
 function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
@@ -1259,29 +1147,81 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
       : "",
     BOM,
   );
+
+  /*
+   * O extrato entra aqui, não num bloco separado.
+   *
+   * Eram duas leituras do mesmo pedido em páginas diferentes: o #140345
+   * aparecia como "não verificável" neste bloco e como encontrado no bloco do
+   * Pix, na página seguinte. Quem lê quer a conclusão junto do pedido.
+   */
+  const noExtrato = new Map(
+    (d.pix?.casados ?? []).map((l) => [l.pedido, l]),
+  );
+  const achadoNoExtrato = [...noExtrato.values()].reduce((s, l) => s + l.valor, 0);
+  const semContrapartida = (d.pix?.semContrapartida ?? []).reduce(
+    (s, l) => s + l.valor,
+    0,
+  );
+
+  if (d.pix && !d.pix.semExtrato) {
+    linha(
+      doc,
+      "Achado no extrato da conta",
+      dinheiro(achadoNoExtrato),
+      noExtrato.size
+        ? `${numero(noExtrato.size)} pedido(s) — Pix que caiu direto, casado com o pedido`
+        : "nenhum Pix do dia casou com pedido pago à mão",
+      noExtrato.size ? BOM : TINTA,
+    );
+  }
+
   linha(
     doc,
-    "Sem rastro nenhum",
-    dinheiro(m.semRastro),
-    m.semRastro > 0
-      ? "só existe porque alguém marcou como pago"
-      : "todo valor tem contrapartida",
-    m.semRastro > 0 ? RUIM : BOM,
+    "Sem contrapartida",
+    dinheiro(d.pix ? semContrapartida : m.semRastro),
+    (d.pix ? semContrapartida : m.semRastro) > 0
+      ? "nem cobrança em gateway, nem Pix na conta — só existe porque alguém marcou como pago"
+      : "todo valor tem onde ser conferido",
+    (d.pix ? semContrapartida : m.semRastro) > 0 ? RUIM : BOM,
   );
+
+  if (d.pix?.semExtrato) {
+    linha(
+      doc,
+      "Extrato não veio",
+      "sem dados",
+      "a conexão do Open Finance não devolveu lançamento nenhum — o Pix do dia não foi conferido",
+      RUIM,
+    );
+  } else if (d.pix?.atualizadoAte && d.pix.atualizadoAte.slice(0, 10) < d.dia) {
+    linha(
+      doc,
+      "Extrato atrasado",
+      `até ${d.pix.atualizadoAte.slice(8, 10)}/${d.pix.atualizadoAte.slice(5, 7)}`,
+      "o banco ainda não publicou os lançamentos do dia — a parte do Pix está incompleta",
+      RUIM,
+    );
+  }
 
   tabela(
     doc,
-    ["Pedido", "Valor", "Método", "Situação", "Na Pagar.me", "Sem rastro"],
-    m.vendas.map((v) => [
-      v.pedido,
-      dinheiro(v.valor),
-      v.metodo,
-      SITUACAO[v.situacao] ?? v.situacao,
-      v.encontrado > 0 ? dinheiro(v.encontrado) : "-",
-      v.semRastro > 0 ? dinheiro(v.semRastro) : "-",
-    ]),
-    [70, 80, 90, 95, 90, LARGURA - 425],
-    ["left", "right", "left", "left", "right", "right"],
+    ["Pedido", "Valor", "Método", "Onde o dinheiro apareceu"],
+    m.vendas.map((v) => {
+      const pix = noExtrato.get(v.pedido);
+      const onde = pix
+        ? `Pix ${horaBrasileira(pix.pix?.quando ?? "")} · ${
+            pix.situacao === "confirmado" ? "nome confere" : "só pelo valor"
+          }`
+        : v.situacao === "exato"
+          ? `Pagar.me · ${dinheiro(v.encontrado)}`
+          : v.situacao === "parcial"
+            ? `Pagar.me · ${dinheiro(v.encontrado)} de ${dinheiro(v.valor)}`
+            : "não encontrado";
+      return [v.pedido, dinheiro(v.valor), v.metodo, onde];
+    }),
+    [70, 80, 95, LARGURA - 245],
+    ["left", "right", "left", "left"],
   );
 
   /*
@@ -1306,14 +1246,23 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     );
   }
 
-  if (m.pixDireto.quantidade > 0) {
+  if (d.pix && !d.pix.semExtrato) {
     linha(
       doc,
-      "Pix direto na conta",
-      dinheiro(m.pixDireto.valor),
-      `${numero(m.pixDireto.quantidade)} pedido(s) — só o extrato do PagBank confirma`,
+      "Entradas por Pix na conta",
+      numero(d.pix.entradas.quantidade),
+      `${dinheiro(d.pix.entradas.valor)} no dia — inclui o que não é venda: aporte, transferência, fornecedor`,
       TINTA3,
     );
+    if (d.pix.entradasSemPedido.length) {
+      linha(
+        doc,
+        "Pix sem pedido correspondente",
+        numero(d.pix.entradasSemPedido.length),
+        `${dinheiro(d.pix.entradasSemPedido.reduce((s, e) => s + e.valor, 0))} — valores de tamanho de pedido que ninguém reivindicou`,
+        TINTA3,
+      );
+    }
   }
 
   if (m.outros.quantidade > 0) {
@@ -2451,7 +2400,6 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoTrocasPagas(doc, d);
     secaoPagamento(doc, d);
     secaoPagosAMao(doc, d);
-    secaoPixDireto(doc, d);
     secaoContrapartida(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
