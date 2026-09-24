@@ -19,7 +19,31 @@ export function temOpenFinance(): boolean {
   return Boolean(config().MCP_AI_KEY);
 }
 
+/**
+ * Uma chamada, com paciência.
+ *
+ * O caminho até o banco passa por proxy e por provedor de Open Finance, e os
+ * dois devolvem 502 com página HTML de vez em quando — vimos isso no meio de um
+ * teste, não em laboratório. Três tentativas com respiro crescente cobrem o
+ * soluço; o que passar disso é falha de verdade e sobe como erro.
+ */
 async function chamar<T>(rota: string, corpo: unknown): Promise<T> {
+  let ultimo: unknown;
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    try {
+      return await tentar<T>(rota, corpo);
+    } catch (e) {
+      ultimo = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // Erro de credencial ou de rota não melhora esperando.
+      if (/40[0-4]/.test(msg)) throw e;
+      if (tentativa < 3) await new Promise((ok) => setTimeout(ok, 2000 * tentativa));
+    }
+  }
+  throw ultimo;
+}
+
+async function tentar<T>(rota: string, corpo: unknown): Promise<T> {
   const r = await fetch(`${BASE}/${rota}`, {
     method: "POST",
     headers: {
@@ -105,12 +129,26 @@ export async function entradasPix(de: string, ate: string): Promise<EntradaPix[]
   const conta = await contaDasVendas();
   if (!conta) return [];
 
-  const r = await chamar<{ results: Array<Record<string, unknown>> }>("transactions/list", {
-    account_id: conta.id,
-    from: de,
-    to: ate,
-    page_size: 500,
-  });
+  /*
+   * Lista vazia merece uma segunda chance.
+   *
+   * Rodando três conferências seguidas, uma delas voltou com zero lançamento
+   * num dia que tinha nove — e zero, aqui, não é "não houve Pix": é o bloco
+   * inteiro acusando falta de contrapartida em pagamento que existe. Duas
+   * tentativas com respiro no meio resolveram; o que sobrar de vazio é tratado
+   * como extrato indisponível por quem chama, não como ausência de dinheiro.
+   */
+  let r = { results: [] as Array<Record<string, unknown>> };
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    r = await chamar<{ results: Array<Record<string, unknown>> }>("transactions/list", {
+      account_id: conta.id,
+      from: de,
+      to: ate,
+      page_size: 500,
+    });
+    if ((r.results ?? []).length) break;
+    if (tentativa < 3) await new Promise((ok) => setTimeout(ok, 1500 * tentativa));
+  }
 
   return (r.results ?? [])
     .filter((t) => String(t.operationType ?? "") === "PIX" && Number(t.amount) > 0)
@@ -130,4 +168,16 @@ export async function entradasPix(de: string, ate: string): Promise<EntradaPix[]
         quem: String(t.description ?? "").trim(),
       };
     });
+}
+
+/**
+ * Pede ao provedor que atualize as conexões agora.
+ *
+ * Não roda no boletim de propósito: a sincronização é cara, pode pedir nova
+ * autenticação em banco com MFA e não é instantânea. Serve para quando o
+ * extrato estiver visivelmente atrasado — ver o CLI `extrato`.
+ */
+export async function sincronizar(): Promise<number> {
+  const r = await chamar<{ results?: unknown[] }>("connections/sync", {});
+  return (r.results ?? []).length;
 }

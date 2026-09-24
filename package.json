@@ -30,7 +30,8 @@
     "mercadopago-teste": "tsx --env-file-if-exists=.env src/cli/mercadopago-teste.ts",
     "holerite": "tsx --env-file-if-exists=.env src/cli/holerite.ts",
     "smtp-teste": "tsx --env-file-if-exists=.env src/cli/smtp-teste.ts",
-    "holerite-enviar": "tsx --env-file-if-exists=.env src/cli/holerite-enviar.ts"
+    "holerite-enviar": "tsx --env-file-if-exists=.env src/cli/holerite-enviar.ts",
+    "extrato": "tsx --env-file-if-exists=.env src/cli/extrato.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",

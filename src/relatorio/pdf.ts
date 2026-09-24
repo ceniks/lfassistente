@@ -1077,6 +1077,30 @@ function secaoPixDireto(doc: Doc, d: DadosRelatorio) {
 
   titulo(doc, "Pix direto na conta");
 
+  // Extrato mudo não é extrato limpo: dizer o contrário acusaria o financeiro
+  // de um problema que é da conexão com o banco.
+  if (p.semExtrato) {
+    linha(
+      doc,
+      "Extrato não veio",
+      "sem dados",
+      "a conexão do Open Finance não devolveu lançamento nenhum — o Pix do dia não foi conferido",
+      RUIM,
+    );
+    return;
+  }
+
+  // Extrato parado na véspera transformaria atraso do banco em acusação.
+  if (p.atualizadoAte && p.atualizadoAte.slice(0, 10) < d.dia) {
+    linha(
+      doc,
+      "Extrato atrasado",
+      `até ${p.atualizadoAte.slice(8, 10)}/${p.atualizadoAte.slice(5, 7)}`,
+      "o Open Finance ainda não trouxe os lançamentos do dia — o que aparece abaixo está incompleto",
+      RUIM,
+    );
+  }
+
   linha(
     doc,
     "Entradas por Pix no dia",

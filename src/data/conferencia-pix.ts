@@ -43,6 +43,21 @@ export interface PedidoComPix {
 
 export interface ConferenciaPix {
   dia: string;
+  /**
+   * O extrato não veio.
+   *
+   * Sem isto, banco fora do ar vira "nenhum pedido tem contrapartida" — e o
+   * boletim acusa o financeiro de um problema que é da conexão.
+   */
+  semExtrato: boolean;
+  /**
+   * Data e hora do lançamento mais recente que o extrato trouxe.
+   *
+   * O Open Finance atualiza em lote, e no dia seguinte o extrato ainda pode
+   * estar na véspera. Sem este dado, um extrato atrasado viraria "pedido sem
+   * contrapartida" — parece problema do financeiro e é atraso do banco.
+   */
+  atualizadoAte: string | null;
   /** Entradas por Pix na conta no dia. */
   entradas: { quantidade: number; valor: number };
   casados: PedidoComPix[];
@@ -101,6 +116,9 @@ export async function conferirPixDireto(
   if (!temOpenFinance() || !manual) return null;
 
   const entradas = await entradasPix(diasEmVolta(dia, -1), diasEmVolta(dia, 1));
+  const semExtrato = entradas.length === 0;
+  const atualizadoAte =
+    entradas.map((e) => e.quando).sort().at(-1) ?? null;
 
   /*
    * Quem ainda deve explicação: o que a Pagar.me não cobriu, mais o que a
@@ -141,6 +159,8 @@ export async function conferirPixDireto(
 
   return {
     dia,
+    semExtrato,
+    atualizadoAte,
     entradas: {
       quantidade: doDia.length,
       valor: doDia.reduce((s, e) => s + e.valor, 0),
