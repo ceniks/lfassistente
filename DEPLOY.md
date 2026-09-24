@@ -262,3 +262,34 @@ número caiu. Falha no destino vira log: nunca derruba o assistente.
 
 Enviar mensagem não conflita: o outro sistema chama a API da Evolution
 diretamente com a mesma chave.
+
+### `groupsIgnore`: a armadilha que custou meia hora
+
+A instância vem com `groupsIgnore: true`. Com isso a Evolution **descarta toda
+mensagem de grupo antes de chamar o webhook** — nada chega, nada é logado, e o
+sintoma é idêntico ao de um JID escrito errado na variável. Confira e corrija
+assim:
+
+```bash
+curl -H "apikey: $EVOLUTION_API_KEY" "$EVOLUTION_URL/webhook/find/lf"    # url e eventos
+curl -H "apikey: $EVOLUTION_API_KEY" "$EVOLUTION_URL/settings/find/lf"   # groupsIgnore
+```
+
+Para liberar, repita as configurações atuais com `groupsIgnore: false` em
+`POST /settings/set/lf` (o corpo substitui tudo; omitir um campo o zera) e
+releia o `find` para confirmar. Vale para o número inteiro, não por grupo:
+eventos de qualquer grupo passam a chegar, e os que não estão em
+`WEBHOOK_REPASSE_JIDS` morrem no filtro local.
+
+### Conferir se o repasse está funcionando
+
+O `/diag` traz três campos para isso:
+
+| Campo | O que responde |
+|---|---|
+| `ultimoEvento` | a Evolution entregou alguma coisa? com qual JID? foi para repasse ou tratamento local? |
+| `ultimosRepasses` | as últimas 5 tentativas, com o status que o destino devolveu |
+| `jidsDeRepasse` | a lista que o filtro enxerga, para comparar com o JID que apareceu |
+
+Os dois primeiros ficam só em memória e zeram a cada deploy. O JID do grupo sai
+de `GET /group/fetchAllGroups/lf?getParticipants=false`.
