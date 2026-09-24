@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
 import { rotasDeRh } from '../rh/web.js';
+import { ehDeRepasse, repassar, temRepasse } from './repasse.js';
 import {
   descartarLote,
   enviarLote,
@@ -121,6 +122,26 @@ async function tratar(req: Request): Promise<void> {
   }
 
   const evento = req.body as EventoEvolution;
+
+  /*
+   * O repasse vem antes de qualquer filtro nosso.
+   *
+   * Mensagem do próprio bot (`fromMe`) e queda de conexão não interessam ao
+   * assistente, mas são exatamente o que o outro sistema precisa para saber se
+   * o boletim dele saiu e se o número está no ar. Filtrar antes de repassar
+   * seria decidir por ele.
+   */
+  if (temRepasse()) {
+    if (evento.event === 'connection.update') {
+      await repassar(req.body);
+      return;
+    }
+    if (ehDeRepasse(evento.data?.key?.remoteJid)) {
+      await repassar(req.body);
+      return;
+    }
+  }
+
   if (evento.event !== 'messages.upsert') return;
 
   const key = evento.data?.key;

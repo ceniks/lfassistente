@@ -258,6 +258,14 @@ const schema = z.object({
    */
   GMAIL_REFRESH_TOKEN: opcional(z.string()),
 
+  // --- Repasse de eventos do WhatsApp para outro sistema no mesmo número ---
+  /** Destino dos eventos. Vazio: nada é repassado. */
+  WEBHOOK_REPASSE_URL: opcional(url()),
+  /** Segredo que o outro lado exige no `Authorization: Bearer`. */
+  WEBHOOK_REPASSE_TOKEN: opcional(z.string()),
+  /** JIDs cujos eventos pertencem ao outro sistema, separados por vírgula. */
+  WEBHOOK_REPASSE_JIDS: opcional(z.string()),
+
   /** Senha da página de holerites. Sem ela a página fica desligada. */
   RH_SENHA: opcional(z.string()),
 
@@ -318,7 +326,7 @@ const schema = z.object({
   DIGEST_CRON: z.string().default("0 8 * * *"),
   /** De quanto em quanto tempo checar a saúde da conta de anúncios. */
   VIGIA_CRON: z.string().default("0 * * * *"),
-  NODE_ENV: z.enum(["development", "production"]).default("production"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
 });
 
 export type Config = z.infer<typeof schema>;

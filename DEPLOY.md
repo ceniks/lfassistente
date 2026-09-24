@@ -239,3 +239,26 @@ Assunto e texto do e-mail vêm de `HOLERITE_ASSUNTO` e `HOLERITE_CORPO`, com os
 marcadores `{tratamento}`, `{primeiro}`, `{nome}` e `{mes}`. A página carrega
 esses modelos em campos editáveis: dá para ajustar o texto de um mês específico
 sem mexer em variável nenhuma.
+
+## Dois sistemas no mesmo número
+
+A Evolution entrega os eventos de uma instância para **um** webhook. Se outro
+projeto configurar o webhook da instância `lf`, o assistente para de receber
+mensagens — sem erro e sem aviso.
+
+Por isso o assistente continua sendo o único assinante e repassa o que é do
+outro sistema, filtrando por conversa:
+
+| Variável | Para quê |
+|---|---|
+| `WEBHOOK_REPASSE_URL` | destino dos eventos (ex.: `https://financeiro.up.railway.app/wa/eventos`) |
+| `WEBHOOK_REPASSE_TOKEN` | segredo que o destino exige em `Authorization: Bearer` |
+| `WEBHOOK_REPASSE_JIDS` | JIDs cujos eventos são dele, separados por vírgula |
+
+O corpo vai cru, como a Evolution mandou, com `key.participant` preservado e
+incluindo `fromMe: true` — é assim que o outro lado confirma que a mensagem
+dele saiu. `connection.update` é repassado sempre, porque é o que avisa que o
+número caiu. Falha no destino vira log: nunca derruba o assistente.
+
+Enviar mensagem não conflita: o outro sistema chama a API da Evolution
+diretamente com a mesma chave.
