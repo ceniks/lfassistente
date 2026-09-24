@@ -1071,6 +1071,60 @@ function horaBrasileira(quando: string): string {
   return `${dd}/${m} ${hora.slice(0, 5)}`.trim();
 }
 
+/**
+ * O fecho das conferências.
+ *
+ * Cada bloco anterior responde por um gateway; este responde pelo dia. Sem ele
+ * era possível ter quatro blocos verdes e faturamento sem lastro no meio,
+ * porque ninguém somava as sobras.
+ */
+function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
+  const c = d.contrapartida;
+  titulo(doc, "Contrapartida do faturamento");
+
+  linha(
+    doc,
+    "Faturamento do dia",
+    dinheiro(c.receita),
+    "tudo que a Shopify registrou como pago",
+  );
+  linha(
+    doc,
+    "Com dinheiro localizado",
+    dinheiro(c.localizado),
+    `${pct(c.cobertura, 1)} do faturamento — cobrança no gateway ou Pix no extrato`,
+    c.cobertura >= 0.999 ? BOM : TINTA,
+  );
+  linha(
+    doc,
+    "Sem contrapartida",
+    dinheiro(c.semContrapartida),
+    c.semContrapartida > 0
+      ? `${numero(c.divergencias.length)} pedido(s) abaixo — dinheiro que só existe porque alguém marcou como pago`
+      : "nenhum: todo pedido pago do dia tem onde ser conferido",
+    c.semContrapartida > 0 ? RUIM : BOM,
+  );
+
+  if (c.divergencias.length) {
+    tabela(
+      doc,
+      ["Pedido", "O que falta", "Valor"],
+      c.divergencias.map((x) => [x.pedido, x.motivo, dinheiro(x.valor)]),
+      [70, LARGURA - 170, 100],
+      ["left", "left", "right"],
+    );
+  }
+
+  if (c.extratoIncompleto) {
+    paragrafo(
+      doc,
+      "O extrato do banco não veio inteiro nesta leitura, então a parte do Pix direto pode estar " +
+        "incompleta: alguns pedidos acima podem ter pagamento que ainda não apareceu.",
+      RUIM,
+    );
+  }
+}
+
 function secaoPixDireto(doc: Doc, d: DadosRelatorio) {
   const p = d.pix;
   if (!p) return;
@@ -2398,6 +2452,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
     secaoPagamento(doc, d);
     secaoPagosAMao(doc, d);
     secaoPixDireto(doc, d);
+    secaoContrapartida(doc, d);
     secaoRitmo(doc, d);
     secaoPatrimonio(doc, d);
     secaoTrocas(doc, d);

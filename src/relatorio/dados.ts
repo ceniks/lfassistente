@@ -41,6 +41,10 @@ import {
   type ConferenciaManual,
 } from "../data/conferencia-manual.js";
 import { conferirPixDireto, type ConferenciaPix } from "../data/conferencia-pix.js";
+import {
+  conferirContrapartida,
+  type Contrapartida,
+} from "../data/contrapartida.js";
 
 /**
  * O material do boletim completo.
@@ -103,6 +107,8 @@ export interface DadosRelatorio {
   manual: ConferenciaManual | null;
   /** O Pix que caiu direto na conta, casado com o pedido. */
   pix: ConferenciaPix | null;
+  /** A conta que fecha o dia: todo faturamento tem onde ser conferido? */
+  contrapartida: Contrapartida;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
   media7dPorHora: MediaDaHora[];
   margem: Margem;
@@ -260,6 +266,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     mercadopago,
     manual,
     pix,
+    contrapartida: conferirContrapartida(vendas, pagbank, mercadopago, manual, pix),
     media7dPorHora,
     margem: margemDoDia(
       vendas,
