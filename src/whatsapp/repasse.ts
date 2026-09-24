@@ -46,6 +46,39 @@ export function ehDeRepasse(jid?: string): boolean {
  * chegar aqui, e a Evolution não pode ficar esperando o outro sistema. Falha
  * vira log, não exceção — um destino fora do ar não pode derrubar o assistente.
  */
+export interface TentativaDeRepasse {
+  em: string;
+  evento: string | null;
+  jid: string | null;
+  resultado: string;
+}
+
+/**
+ * As últimas tentativas, só em memória.
+ *
+ * Existe por um motivo prático: o destino guarda o evento mas não devolve o
+ * que guardou, então "o outro sistema recebeu?" não se responde de fora. Sem
+ * este rastro, a única prova está no log do Railway, que exige abrir o painel
+ * e some quando a aba fecha. Cinco bastam — é diagnóstico, não histórico.
+ */
+const ULTIMAS = 5;
+const tentativas: TentativaDeRepasse[] = [];
+
+export function ultimosRepasses(): TentativaDeRepasse[] {
+  return [...tentativas].reverse();
+}
+
+function anotar(corpo: unknown, resultado: string): void {
+  const e = corpo as { event?: string; data?: { key?: { remoteJid?: string } } } | null;
+  tentativas.push({
+    em: new Date().toISOString(),
+    evento: e?.event ?? null,
+    jid: e?.data?.key?.remoteJid ?? null,
+    resultado,
+  });
+  if (tentativas.length > ULTIMAS) tentativas.shift();
+}
+
 export async function repassar(corpo: unknown): Promise<void> {
   const c = config();
   if (!c.WEBHOOK_REPASSE_URL) return;
@@ -63,10 +96,13 @@ export async function repassar(corpo: unknown): Promise<void> {
       body: JSON.stringify(corpo),
       signal: AbortSignal.timeout(15_000),
     });
+    anotar(corpo, String(r.status));
     if (!r.ok) {
       console.error(`[repasse] destino respondeu ${r.status}: ${(await r.text()).slice(0, 200)}`);
     }
   } catch (e) {
-    console.error('[repasse] falhou:', e instanceof Error ? e.message : e);
+    const motivo = e instanceof Error ? e.message : String(e);
+    anotar(corpo, `falhou: ${motivo}`);
+    console.error('[repasse] falhou:', motivo);
   }
 }

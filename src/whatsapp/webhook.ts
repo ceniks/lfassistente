@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
 import { rotasDeRh } from '../rh/web.js';
-import { ehDeRepasse, repassar, temRepasse } from './repasse.js';
+import { ehDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
 import {
   descartarLote,
   enviarLote,
@@ -99,6 +99,8 @@ export function criarApp() {
       cronDoResumo: config().DIGEST_CRON,
       whatsapp: await estadoDaInstancia(),
       ultimoResumo: ultimaTentativa(),
+      // As últimas tentativas de repasse, em memória. Zera a cada deploy.
+      ultimosRepasses: ultimosRepasses(),
     });
   });
 
