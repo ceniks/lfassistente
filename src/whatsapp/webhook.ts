@@ -78,6 +78,9 @@ export function criarApp() {
       troque: Boolean(c.TROQUE_TOKEN),
       paginaDeRh: Boolean(c.RH_SENHA),
       openFinance: Boolean(c.MCP_AI_KEY),
+      // Só o host, nunca a chave: existe porque a URL da Evolution vive no
+      // painel do Railway e descobri-la por captura de tela é lento e erra.
+      evolutionHost: c.EVOLUTION_URL ? new URL(c.EVOLUTION_URL).host : null,
     };
     res.json({
       integracoes,
