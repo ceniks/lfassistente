@@ -81,6 +81,15 @@ export function criarApp() {
       // Só o host, nunca a chave: existe porque a URL da Evolution vive no
       // painel do Railway e descobri-la por captura de tela é lento e erra.
       evolutionHost: c.EVOLUTION_URL ? new URL(c.EVOLUTION_URL).host : null,
+      // Repasse: destino, se há segredo e quantos JIDs. Sem isso, "o outro
+      // sistema não recebeu" não se distingue de "a variável não está lá".
+      repasse: c.WEBHOOK_REPASSE_URL
+        ? {
+            destino: new URL(c.WEBHOOK_REPASSE_URL).host,
+            comSegredo: Boolean(c.WEBHOOK_REPASSE_TOKEN),
+            jids: (c.WEBHOOK_REPASSE_JIDS ?? '').split(',').filter((j) => j.trim()).length,
+          }
+        : null,
     };
     res.json({
       integracoes,
