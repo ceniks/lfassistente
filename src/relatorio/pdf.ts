@@ -1199,7 +1199,9 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
       doc,
       "Extrato atrasado",
       `até ${d.pix.atualizadoAte.slice(8, 10)}/${d.pix.atualizadoAte.slice(5, 7)}`,
-      "o banco ainda não publicou os lançamentos do dia — a parte do Pix está incompleta",
+      d.pix.sincronizou
+        ? "pedimos a atualização e mesmo assim o banco não publicou os lançamentos do dia"
+        : "a atualização do extrato não respondeu a tempo — a parte do Pix está incompleta",
       RUIM,
     );
   }

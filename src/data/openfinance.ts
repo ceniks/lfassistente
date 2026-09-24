@@ -181,3 +181,37 @@ export async function sincronizar(): Promise<number> {
   const r = await chamar<{ results?: unknown[] }>("connections/sync", {});
   return (r.results ?? []).length;
 }
+
+/**
+ * Pede a atualização antes de ler, sem deixar o boletim refém dela.
+ *
+ * O Open Finance não é tempo real: o provedor visita o banco algumas vezes por
+ * dia e guarda o resultado. Às 8h da manhã, o extrato de ontem costuma estar
+ * parado na última visita — foi o que aconteceu no dia 23, com um único Pix
+ * registrado contra oito ou nove dos dias anteriores.
+ *
+ * Então o boletim pede a visita e espera um pouco. Se vier a tempo, a
+ * conferência do Pix sai completa; se não vier, segue com o que havia e o
+ * relatório diz até quando o banco publicou. O que não pode é a montagem
+ * inteira ficar pendurada esperando banco.
+ */
+export async function sincronizarComTeto(
+  ms = config().OPENFINANCE_TETO_SINC_MS,
+): Promise<boolean> {
+  const t0 = Date.now();
+  try {
+    await Promise.race([
+      sincronizar(),
+      new Promise((_, falhar) => setTimeout(() => falhar(new Error("teto")), ms)),
+    ]);
+    console.error(`[openfinance] sincronizado em ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    return true;
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[openfinance] sincronização não concluiu em ${((Date.now() - t0) / 1000).toFixed(1)}s ` +
+        `(${motivo.slice(0, 80)}) — seguindo com o que o provedor já tem`,
+    );
+    return false;
+  }
+}

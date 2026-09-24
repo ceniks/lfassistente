@@ -272,6 +272,17 @@ const schema = z.object({
   OPENFINANCE_CONTA: opcional(z.string()),
 
   /**
+   * Pedir ao provedor que atualize o extrato antes de ler.
+   *
+   * Ligado por padrão: sem isso, o boletim das 8h lê a última visita ao banco,
+   * que costuma ser da véspera. `false` desliga, para quando a sincronização
+   * estiver custando mais do que entrega.
+   */
+  OPENFINANCE_SINCRONIZAR: z.coerce.boolean().default(true),
+  /** Quanto esperar pela sincronização antes de seguir sem ela. */
+  OPENFINANCE_TETO_SINC_MS: z.coerce.number().int().positive().default(45_000),
+
+  /**
    * Texto do e-mail do holerite. Marcadores: {tratamento}, {primeiro}, {nome}
    * e {mes}. Fica aqui para poder mudar sem deploy; a página ainda deixa
    * editar antes de cada envio.

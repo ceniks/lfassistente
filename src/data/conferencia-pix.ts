@@ -23,7 +23,13 @@
  * Quando não, continua casada pelo valor, mas marcada como provável — porque
  * marido paga a compra da esposa o tempo todo.
  */
-import { entradasPix, temOpenFinance, type EntradaPix } from "./openfinance.js";
+import {
+  entradasPix,
+  sincronizarComTeto,
+  temOpenFinance,
+  type EntradaPix,
+} from "./openfinance.js";
+import { config } from "../config.js";
 import type { ConferenciaManual, PedidoManual } from "./conferencia-manual.js";
 
 const TOLERANCIA = 0.1;
@@ -50,6 +56,8 @@ export interface ConferenciaPix {
    * boletim acusa o financeiro de um problema que é da conexão.
    */
   semExtrato: boolean;
+  /** O provedor foi chamado para atualizar o extrato antes desta leitura. */
+  sincronizou: boolean;
   /**
    * Data e hora do lançamento mais recente que o extrato trouxe.
    *
@@ -115,6 +123,11 @@ export async function conferirPixDireto(
 ): Promise<ConferenciaPix | null> {
   if (!temOpenFinance() || !manual) return null;
 
+  // Pede ao provedor que visite o banco antes de ler — ver `sincronizarComTeto`.
+  const sincronizou = config().OPENFINANCE_SINCRONIZAR
+    ? await sincronizarComTeto()
+    : false;
+
   const entradas = await entradasPix(diasEmVolta(dia, -1), diasEmVolta(dia, 1));
   const semExtrato = entradas.length === 0;
   const atualizadoAte =
@@ -160,6 +173,7 @@ export async function conferirPixDireto(
   return {
     dia,
     semExtrato,
+    sincronizou,
     atualizadoAte,
     entradas: {
       quantidade: doDia.length,
