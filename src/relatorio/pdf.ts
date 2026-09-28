@@ -1217,10 +1217,20 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     (d.pix?.casados ?? []).map((l) => [l.pedido, l]),
   );
   const achadoNoExtrato = [...noExtrato.values()].reduce((s, l) => s + l.valor, 0);
-  const semContrapartida = (d.pix?.semContrapartida ?? []).reduce(
-    (s, l) => s + l.valor,
-    0,
+  /*
+   * O que o comprovante fechou também vale aqui.
+   *
+   * Sem isto o mesmo pedido aparecia "não encontrado" neste bloco e
+   * "conferido" no de contrapartida — a contradição que já aconteceu com o
+   * #140345 e que faz o boletim inteiro perder credibilidade.
+   */
+  const porComprovante = new Map(
+    (d.comprovantes?.pedidos ?? []).filter((p) => p.fecha).map((p) => [p.pedido, p]),
   );
+
+  const semContrapartida = (d.pix?.semContrapartida ?? [])
+    .filter((l) => !porComprovante.has(l.pedido))
+    .reduce((s, l) => s + l.valor, 0);
 
   if (d.pix && !d.pix.semExtrato) {
     linha(
@@ -1229,19 +1239,26 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
       dinheiro(achadoNoExtrato),
       noExtrato.size
         ? `${numero(noExtrato.size)} pedido(s) — Pix que caiu direto, casado com o pedido`
-        : "nenhum Pix do dia casou com pedido pago à mão",
+        : porComprovante.size
+          ? "nenhum casou só pelo valor — o que fechou, fechou pelo comprovante (abaixo)"
+          : "nenhum Pix do dia casou com pedido pago à mão",
       noExtrato.size ? BOM : TINTA,
     );
   }
 
+  const restaExplicar = d.pix
+    ? semContrapartida
+    : m.vendas
+        .filter((v) => !porComprovante.has(v.pedido))
+        .reduce((s, v) => s + v.semRastro, 0);
   linha(
     doc,
     "Sem contrapartida",
-    dinheiro(d.pix ? semContrapartida : m.semRastro),
-    (d.pix ? semContrapartida : m.semRastro) > 0
+    dinheiro(restaExplicar),
+    restaExplicar > 0
       ? "nem cobrança em gateway, nem Pix na conta — só existe porque alguém marcou como pago"
       : "todo valor tem onde ser conferido",
-    (d.pix ? semContrapartida : m.semRastro) > 0 ? RUIM : BOM,
+    restaExplicar > 0 ? RUIM : BOM,
   );
 
   /*
@@ -1284,7 +1301,13 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     ["Pedido", "Valor", "Método", "Onde o dinheiro apareceu"],
     m.vendas.map((v) => {
       const pix = noExtrato.get(v.pedido);
-      const onde = pix
+      const doc_ = porComprovante.get(v.pedido);
+      const onde = doc_
+        ? doc_.comprovantes.length > 1
+          ? `comprovante · ${numero(doc_.comprovantes.length)} pagamentos: ` +
+            doc_.comprovantes.map((c) => c.instituicao || "?").join(" + ")
+          : `comprovante · ${doc_.comprovantes[0]?.instituicao ?? ""}`
+        : pix
         ? `Pix ${horaBrasileira(pix.pix?.quando ?? "")} · ${
             pix.situacao === "confirmado" ? "nome confere" : "só pelo valor"
           }`
@@ -1306,7 +1329,7 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
    * custa mais que a primeira e não aparecia em lugar nenhum. Provado, o que
    * interessa no dia a dia é quanto a venda pela Pagar.me custa de verdade.
    */
-  for (const v of m.vendas.filter((x) => x.nota)) {
+  for (const v of m.vendas.filter((x) => x.nota && !porComprovante.has(x.pedido))) {
     linha(doc, ` ${v.pedido}`, "", v.nota ?? "", RUIM);
   }
 
@@ -1329,12 +1352,24 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
       `${dinheiro(d.pix.entradas.valor)} no dia — inclui o que não é venda: aporte, transferência, fornecedor`,
       TINTA3,
     );
-    if (d.pix.entradasSemPedido.length) {
+    /*
+     * Um Pix reivindicado por comprovante não é órfão. Sem este desconto, o
+     * mesmo R$ 339,55 aparecia conferido no #140825 duas linhas acima e
+     * "ninguém reivindicou" aqui embaixo.
+     */
+    const reivindicados = new Set(
+      (d.comprovantes?.pedidos ?? [])
+        .flatMap((p) => p.comprovantes)
+        .filter((c) => c.casou && c.lancamento)
+        .map((c) => c.lancamento as string),
+    );
+    const orfas = d.pix.entradasSemPedido.filter((e) => !reivindicados.has(e.id));
+    if (orfas.length) {
       linha(
         doc,
         "Pix sem pedido correspondente",
-        numero(d.pix.entradasSemPedido.length),
-        `${dinheiro(d.pix.entradasSemPedido.reduce((s, e) => s + e.valor, 0))} — valores de tamanho de pedido que ninguém reivindicou`,
+        numero(orfas.length),
+        `${dinheiro(orfas.reduce((s, e) => s + e.valor, 0))} — valores de tamanho de pedido que ninguém reivindicou`,
         TINTA3,
       );
     }
