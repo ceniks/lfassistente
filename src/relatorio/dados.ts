@@ -42,6 +42,10 @@ import {
 } from "../data/conferencia-manual.js";
 import { conferirPixDireto, type ConferenciaPix } from "../data/conferencia-pix.js";
 import {
+  conferirComprovantes,
+  type ConferenciaComprovantes,
+} from "../data/conferencia-comprovantes.js";
+import {
   conferirContrapartida,
   type Contrapartida,
 } from "../data/contrapartida.js";
@@ -107,6 +111,7 @@ export interface DadosRelatorio {
   manual: ConferenciaManual | null;
   /** O Pix que caiu direto na conta, casado com o pedido. */
   pix: ConferenciaPix | null;
+  comprovantes: ConferenciaComprovantes | null;
   /** A conta que fecha o dia: todo faturamento tem onde ser conferido? */
   contrapartida: Contrapartida;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
@@ -224,6 +229,12 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
   // procurado no extrato.
   const pix = await opcional("pix direto", () => conferirPixDireto(dia, manual));
 
+  // Última cartada antes de chamar um pedido de divergência: o comprovante que
+  // a atendente anexou diz onde procurar o que a busca por valor não achou.
+  const comprovantes = await opcional("comprovantes", () =>
+    conferirComprovantes(dia, manual),
+  );
+
   // Mesmo dia da semana anterior. Varejo de moda tem semana forte: comparar
   // sábado com a média que inclui terça esconde o padrão em vez de revelar.
   const seteAtras = serie.find((p) => p.dia === diasAntes(dia, 7)[6]) ?? null;
@@ -266,7 +277,15 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     mercadopago,
     manual,
     pix,
-    contrapartida: conferirContrapartida(vendas, pagbank, mercadopago, manual, pix),
+    comprovantes,
+    contrapartida: conferirContrapartida(
+      vendas,
+      pagbank,
+      mercadopago,
+      manual,
+      pix,
+      comprovantes,
+    ),
     media7dPorHora,
     margem: margemDoDia(
       vendas,

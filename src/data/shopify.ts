@@ -1913,6 +1913,66 @@ export async function trafegoDoDia(dia: string): Promise<Trafego> {
  * único registro que existe para o que já foi criado, e ignorá-lo seria jogar
  * fora a única pista.
  */
+export interface AnexoDePedido {
+  pedido: string;
+  arquivo: string;
+  /** URL assinada e temporária: baixar na hora, nunca guardar. */
+  url: string;
+}
+
+/**
+ * Os arquivos que as atendentes anexam na linha do tempo do pedido.
+ *
+ * É onde mora o comprovante do Pix. Até aqui o conferidor só via o valor que
+ * alguém digitou como pago; o comprovante diz o valor, a hora e para qual
+ * instituição o dinheiro foi — que é exatamente o que falta para procurar no
+ * lugar certo em vez de procurar por coincidência de valor.
+ */
+export async function anexosDePedidos(
+  nomes: string[],
+): Promise<Map<string, AnexoDePedido[]>> {
+  const fora = new Map<string, AnexoDePedido[]>();
+  if (!nomes.length) return fora;
+
+  const query = `query($q: String!) {
+    orders(first: 50, query: $q) {
+      nodes {
+        name
+        events(first: 30) {
+          nodes {
+            ... on CommentEvent { attachments { name url } }
+          }
+        }
+      }
+    }
+  }`;
+
+  for (let i = 0; i < nomes.length; i += 20) {
+    const bloco = nomes.slice(i, i + 20);
+    const q = bloco.map((n) => `name:${n.replace("#", "")}`).join(" OR ");
+    const r = await admin<{
+      orders: {
+        nodes: Array<{
+          name: string;
+          events: {
+            nodes: Array<{ attachments?: Array<{ name: string; url: string }> }>;
+          };
+        }>;
+      };
+    }>(query, { q });
+
+    for (const o of r.orders.nodes) {
+      const anexos = o.events.nodes
+        .flatMap((e) => e.attachments ?? [])
+        .filter((a) => /\.pdf$|\.png$|\.jpe?g$/i.test(a.name))
+        .map((a) => ({ pedido: o.name, arquivo: a.name, url: a.url }));
+      if (anexos.length) fora.set(o.name, anexos);
+    }
+  }
+
+  return fora;
+}
+
 export async function comentariosDePedidos(
   nomes: string[],
 ): Promise<Map<string, string[]>> {

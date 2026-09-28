@@ -15,6 +15,7 @@
 import type { ConferenciaPagBank } from "./conferencia-pagbank.js";
 import type { ConferenciaManual } from "./conferencia-manual.js";
 import type { ConferenciaPix } from "./conferencia-pix.js";
+import type { ConferenciaComprovantes } from "./conferencia-comprovantes.js";
 import type { ResumoVendas } from "./shopify.js";
 
 export interface Divergencia {
@@ -31,6 +32,8 @@ export interface Contrapartida {
   divergencias: Divergencia[];
   /** Quanto do faturamento foi localizado em algum lugar. */
   localizado: number;
+  /** Parte do localizado que só fechou porque havia comprovante anexado. */
+  confirmadoPorComprovante: number;
   cobertura: number;
   /** A parte do Pix não pode ser dada por conferida nesta leitura. */
   extratoIncompleto: boolean;
@@ -51,8 +54,19 @@ export function conferirContrapartida(
   mercadopago: ConferenciaPagBank | null,
   manual: ConferenciaManual | null,
   pix: ConferenciaPix | null,
+  comprovantes: ConferenciaComprovantes | null = null,
 ): Contrapartida {
   const divergencias: Divergencia[] = [];
+
+  /*
+   * Pedido cujo comprovante foi localizado no trilho que ele declara não é
+   * divergência — só não era encontrável procurando o valor cheio no dia do
+   * pedido. Continua sendo conferido: quem confirmou foi o gateway, o
+   * documento só disse onde olhar.
+   */
+  const fechadosPorComprovante = new Set(
+    (comprovantes?.pedidos ?? []).filter((p) => p.fecha).map((p) => p.pedido),
+  );
 
   // Pedido pago na Shopify que o gateway não tem. É o caso mais grave: a loja
   // registrou dinheiro que o adquirente não viu.
@@ -74,6 +88,7 @@ export function conferirContrapartida(
    * denúncia.
    */
   for (const l of pix?.semContrapartida ?? []) {
+    if (fechadosPorComprovante.has(l.pedido)) continue;
     divergencias.push({
       pedido: l.pedido,
       valor: l.valor,
@@ -88,7 +103,7 @@ export function conferirContrapartida(
   // explicação — só que sem a segunda chance do extrato.
   if (!pix && manual) {
     for (const v of manual.vendas) {
-      if (v.semRastro <= 0.01) continue;
+      if (v.semRastro <= 0.01 || fechadosPorComprovante.has(v.pedido)) continue;
       divergencias.push({
         pedido: v.pedido,
         valor: v.semRastro,
@@ -106,6 +121,7 @@ export function conferirContrapartida(
     divergencias: divergencias.sort((a, b) => b.valor - a.valor),
     localizado: Math.max(0, receita - semContrapartida),
     cobertura: receita > 0 ? Math.max(0, receita - semContrapartida) / receita : 1,
+    confirmadoPorComprovante: comprovantes?.confirmado ?? 0,
     ...motivoDoExtrato(manual, pix),
   };
 }

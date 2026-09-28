@@ -1065,6 +1065,40 @@ const SITUACAO: Record<string, string> = {
  * era possível ter quatro blocos verdes e faturamento sem lastro no meio,
  * porque ninguém somava as sobras.
  */
+/**
+ * O que cada comprovante anexado provou.
+ *
+ * Vale a linha mesmo quando fecha: sem ela, o pedido some da lista de
+ * divergências e ninguém sabe por quê — e "sumiu" e "foi conferido" precisam
+ * parecer coisas diferentes.
+ */
+function tabelaDeComprovantes(doc: Doc, d: DadosRelatorio) {
+  const pedidos = d.comprovantes?.pedidos ?? [];
+  if (!pedidos.length) return;
+
+  const linhas = pedidos.flatMap((p) =>
+    p.comprovantes.map((c) => [
+      p.pedido,
+      `${horaBrasileira(c.quando)} · ${c.instituicao || "destino não dito"}`,
+      dinheiro(c.valor),
+      c.casou ? "conferido" : (c.nota ?? "não encontrado"),
+    ]),
+  );
+
+  paragrafo(
+    doc,
+    "Comprovantes anexados no pedido, e o que cada um provou. O documento só diz " +
+      "onde procurar — quem confirma continua sendo o gateway ou o extrato.",
+  );
+  tabela(
+    doc,
+    ["Pedido", "Comprovante", "Valor", "Resultado"],
+    linhas,
+    [65, 175, 75, LARGURA - 315],
+    ["left", "left", "right", "left"],
+  );
+}
+
 function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
   const c = d.contrapartida;
   titulo(doc, "Contrapartida do faturamento");
@@ -1082,6 +1116,15 @@ function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
     `${pct(c.cobertura, 1)} do faturamento — cobrança no gateway ou Pix no extrato`,
     c.cobertura >= 0.999 ? BOM : TINTA,
   );
+  if (c.confirmadoPorComprovante > 0) {
+    linha(
+      doc,
+      "Fechado pelo comprovante",
+      dinheiro(c.confirmadoPorComprovante),
+      "pedido que a busca por valor não achava — o comprovante anexado disse onde procurar",
+      BOM,
+    );
+  }
   linha(
     doc,
     "Sem contrapartida",
@@ -1101,6 +1144,8 @@ function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
       ["left", "left", "right"],
     );
   }
+
+  tabelaDeComprovantes(doc, d);
 
   if (c.extratoIncompleto) {
     paragrafo(
