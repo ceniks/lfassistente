@@ -1105,11 +1105,24 @@ function secaoContrapartida(doc: Doc, d: DadosRelatorio) {
   if (c.extratoIncompleto) {
     paragrafo(
       doc,
-      "O extrato do banco não veio inteiro nesta leitura, então a parte do Pix direto pode estar " +
-        "incompleta: alguns pedidos acima podem ter pagamento que ainda não apareceu.",
+      `A parte do Pix direto não foi conferida nesta leitura: ${c.motivoDoExtrato} ` +
+        "Se houver pedido na lista acima, ele pode ter pagamento que ainda não apareceu.",
       RUIM,
     );
   }
+}
+
+/** ISO em UTC -> "27/09 06:45" na hora de Brasília. */
+function horaDeBrasilia(iso: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(new Date(iso))
+    .replace(",", "");
 }
 
 /** "2026-09-22 15:48:55" -> "22/09 15:48". */
@@ -1186,23 +1199,38 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
     (d.pix ? semContrapartida : m.semRastro) > 0 ? RUIM : BOM,
   );
 
-  if (d.pix?.semExtrato) {
+  /*
+   * A idade do extrato vem da coleta do provedor, não do lançamento mais
+   * recente: dia sem Pix nenhum é normal, coleta parada na véspera não é.
+   */
+  const conexaoRuim = (d.pix?.conexoes ?? []).filter(
+    (c) => c.status !== "UPDATED" || c.execucao !== "SUCCESS",
+  );
+  if (conexaoRuim.length) {
     linha(
       doc,
-      "Extrato não veio",
-      "sem dados",
-      "a conexão do Open Finance não devolveu lançamento nenhum — o Pix do dia não foi conferido",
+      "Conexão do banco",
+      conexaoRuim.map((c) => c.banco).join(", "),
+      "a conexão do Open Finance não está em dia — pode ser preciso reconectar a conta",
       RUIM,
     );
-  } else if (d.pix?.atualizadoAte && d.pix.atualizadoAte.slice(0, 10) < d.dia) {
+  } else if (d.pix && !d.pix.cobreODia) {
     linha(
       doc,
       "Extrato atrasado",
-      `até ${d.pix.atualizadoAte.slice(8, 10)}/${d.pix.atualizadoAte.slice(5, 7)}`,
+      d.pix.coletadoAte ? `coletado ${horaDeBrasilia(d.pix.coletadoAte)}` : "idade desconhecida",
       d.pix.sincronizou
-        ? "pedimos a atualização e mesmo assim o banco não publicou os lançamentos do dia"
+        ? "pedimos a atualização e mesmo assim o provedor não alcançou o fim do dia"
         : "a atualização do extrato não respondeu a tempo — a parte do Pix está incompleta",
       RUIM,
+    );
+  } else if (d.pix?.semExtrato) {
+    linha(
+      doc,
+      "Sem Pix na janela",
+      "nenhum",
+      "o extrato está em dia e não houve entrada por Pix — nada a casar",
+      TINTA,
     );
   }
 

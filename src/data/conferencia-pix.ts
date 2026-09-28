@@ -26,6 +26,8 @@
 import {
   entradasPix,
   sincronizarComTeto,
+  estadoDasConexoes,
+  type ConexaoBancaria,
   temOpenFinance,
   type EntradaPix,
 } from "./openfinance.js";
@@ -66,6 +68,17 @@ export interface ConferenciaPix {
    * contrapartida" — parece problema do financeiro e é atraso do banco.
    */
   atualizadoAte: string | null;
+  /**
+   * Quando o provedor visitou o banco pela última vez, e em que estado cada
+   * conexão está. É isto — e não o lançamento mais recente — que diz se o
+   * extrato cobre o dia: domingo sem venda e conexão caída produzem o mesmo
+   * extrato vazio.
+   */
+  conexoes: ConexaoBancaria[];
+  /** A coleta mais atrasada entre as conexões (ISO, UTC). */
+  coletadoAte: string | null;
+  /** A coleta alcançou o fim do dia conferido. */
+  cobreODia: boolean;
   /** Entradas por Pix na conta no dia. */
   entradas: { quantidade: number; valor: number };
   casados: PedidoComPix[];
@@ -128,6 +141,16 @@ export async function conferirPixDireto(
     ? await sincronizarComTeto()
     : false;
 
+  // Estado da coleta antes de julgar o extrato. Falha aqui não pode derrubar a
+  // conferência: sem ela seguimos sem saber a idade do dado, que é pior do que
+  // saber, mas melhor do que não ter bloco nenhum.
+  const conexoes = await estadoDasConexoes().catch(() => [] as ConexaoBancaria[]);
+  const coletas = conexoes.map((c) => c.coletadoEm).filter((x): x is string => Boolean(x));
+  const coletadoAte = coletas.length ? coletas.sort()[0] : null;
+  const cobreODia = coletadoAte
+    ? coletadoAte >= new Date(`${dia}T23:59:59-03:00`).toISOString()
+    : false;
+
   const entradas = await entradasPix(diasEmVolta(dia, -1), diasEmVolta(dia, 1));
   const semExtrato = entradas.length === 0;
   const atualizadoAte =
@@ -175,6 +198,9 @@ export async function conferirPixDireto(
     semExtrato,
     sincronizou,
     atualizadoAte,
+    conexoes,
+    coletadoAte,
+    cobreODia,
     entradas: {
       quantidade: doDia.length,
       valor: doDia.reduce((s, e) => s + e.valor, 0),

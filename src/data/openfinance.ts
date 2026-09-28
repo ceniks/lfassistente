@@ -170,6 +170,48 @@ export async function entradasPix(de: string, ate: string): Promise<EntradaPix[]
     });
 }
 
+export interface ConexaoBancaria {
+  banco: string;
+  /** `UPDATED` é o único estado em que os dados são de confiança. */
+  status: string;
+  /** `SUCCESS`, ou o motivo pelo qual a última visita ao banco falhou. */
+  execucao: string;
+  /** Quando o provedor visitou o banco pela última vez (ISO, UTC). */
+  coletadoEm: string | null;
+  /** Só preenchido quando a conexão precisa de nova autenticação. */
+  reconectar: string | null;
+}
+
+/**
+ * Quando o provedor esteve no banco pela última vez.
+ *
+ * Isto não se deduz dos lançamentos. Um extrato sem nenhum Pix hoje pode ser
+ * um domingo sem venda ou uma conexão que caiu na sexta — e as duas coisas
+ * exigem respostas opostas do financeiro. Só o provedor sabe qual é, e diz
+ * aqui, em `lastUpdatedAt` e `executionStatus`.
+ */
+export async function estadoDasConexoes(): Promise<ConexaoBancaria[]> {
+  const r = await chamar<{
+    items?: {
+      status?: string;
+      executionStatus?: string;
+      lastUpdatedAt?: string;
+      updatedAt?: string;
+      connector?: { name?: string };
+      reconnect_url?: string;
+    }[];
+  }>("connections/status", {});
+
+  return (r.items ?? []).map((i) => ({
+    banco: i.connector?.name ?? "conta",
+    status: String(i.status ?? "?"),
+    execucao: String(i.executionStatus ?? "?"),
+    coletadoEm: i.lastUpdatedAt ?? i.updatedAt ?? null,
+    reconectar:
+      String(i.status ?? "") === "UPDATED" ? null : (i.reconnect_url ?? null),
+  }));
+}
+
 /**
  * Pede ao provedor que atualize as conexões agora.
  *
