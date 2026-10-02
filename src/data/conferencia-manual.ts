@@ -71,7 +71,22 @@ export const normalizarGateway = (g: string) =>
 /** Pix cai direto na conta e não passa por gateway: não há o que consultar. */
 const ehPixDireto = (g: string) => normalizarGateway(g) === "pix";
 
-export type SituacaoManual = "exato" | "parcial" | "sem-rastro" | "pix-direto";
+export type SituacaoManual =
+  | "exato"
+  | "parcial"
+  | "sem-rastro"
+  | "pix-direto"
+  /**
+   * Cobrança do valor exato na Pagar.me, mas no nome de outra pessoa.
+   *
+   * Acontece de verdade e com frequência: marido, filha ou a empresa paga o
+   * pedido da cliente. O #141259 é o caso — pedido de maiaryduarte18@gmail.com,
+   * link pago por Paulo Alexandre (pauloalexandrexx@gmail.com), R$ 2.084,20 em
+   * ambos. Exigir o mesmo e-mail transformava isso em "dinheiro que não
+   * existe". Fica como categoria própria porque a prova é mais fraca que a do
+   * casamento por e-mail e quem lê precisa saber disso.
+   */
+  | "por-valor";
 
 export interface PedidoManual {
   pedido: string;
@@ -159,6 +174,22 @@ const metodoDeclarado = (p: OrderNode) => {
   ];
   return gs.length === 1 ? gs[0] : gs.join(" + ");
 };
+
+/**
+ * Cobranças pagas, ainda livres, do valor exato do pedido.
+ *
+ * Separado para ser testável sem rede: é a regra que decide se "pago por
+ * outra pessoa" vira conferência ou vira dúvida, e ela precisa de teste.
+ */
+export function cobrancasDoMesmoValor(
+  valor: number,
+  pagos: PedidoPagarme[],
+  usados: Set<string>,
+): PedidoPagarme[] {
+  return pagos.filter(
+    (c) => !usados.has(c.id) && Math.abs(c.valor - valor) <= TOLERANCIA,
+  );
+}
 
 export async function conferirPagosAMao(
   dia: string,
@@ -261,6 +292,51 @@ export async function conferirPagosAMao(
     const exato = dela.find((c) => Math.abs(c.valor - valor) <= TOLERANCIA);
     const achado = exato ?? dela[0];
     if (achado) usados.add(achado.id);
+
+    /*
+     * Ninguém no nome dela: tentar pelo valor, e só se não houver dúvida.
+     *
+     * Quem paga o pedido nem sempre é quem compra. A cobrança existe, está
+     * paga e tem o valor exato — negar isso por causa do e-mail é inventar um
+     * buraco de caixa. Mas o casamento por valor só vale quando há **uma**
+     * cobrança livre daquele valor no dia: duas e a escolha seria sorteio, que
+     * é como uma conferência produz falso positivo.
+     */
+    if (!achado) {
+      const mesmoValor = cobrancasDoMesmoValor(valor, pagos, usados);
+      if (mesmoValor.length === 1) {
+        const c = mesmoValor[0];
+        usados.add(c.id);
+        return {
+          pedido: p.name,
+          valor,
+          categoria: categoria(p),
+          email,
+          metodo,
+          situacao: "por-valor",
+          encontrado: c.valor,
+          semRastro: 0,
+          codigo: c.codigo,
+          chargeId: c.chargeId,
+          nota: `pago por ${c.nome || "outra pessoa"}${c.email ? ` (${c.email})` : ""}, e não pela cliente do pedido`,
+        };
+      }
+      if (mesmoValor.length > 1) {
+        return {
+          pedido: p.name,
+          valor,
+          categoria: categoria(p),
+          email,
+          metodo,
+          situacao: "sem-rastro",
+          encontrado: 0,
+          semRastro: valor,
+          codigo: null,
+          chargeId: null,
+          nota: `${mesmoValor.length} cobranças pagas do mesmo valor no dia, nenhuma no nome da cliente — sem como decidir`,
+        };
+      }
+    }
 
     const encontrado = achado?.valor ?? 0;
     const situacao: SituacaoManual = !achado

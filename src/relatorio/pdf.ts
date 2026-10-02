@@ -1313,6 +1313,8 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
           }`
         : v.situacao === "exato"
           ? `Pagar.me · ${dinheiro(v.encontrado)}`
+          : v.situacao === "por-valor"
+            ? `Pagar.me · ${dinheiro(v.encontrado)} · pago por terceiro`
           : v.situacao === "parcial"
             ? `Pagar.me · ${dinheiro(v.encontrado)} de ${dinheiro(v.valor)}`
             : "não encontrado";
@@ -1330,7 +1332,8 @@ function secaoPagosAMao(doc: Doc, d: DadosRelatorio) {
    * interessa no dia a dia é quanto a venda pela Pagar.me custa de verdade.
    */
   for (const v of m.vendas.filter((x) => x.nota && !porComprovante.has(x.pedido))) {
-    linha(doc, ` ${v.pedido}`, "", v.nota ?? "", RUIM);
+    // "Pago por terceiro" é explicação, não alarme: o dinheiro está lá.
+    linha(doc, ` ${v.pedido}`, "", v.nota ?? "", v.situacao === "por-valor" ? TINTA3 : RUIM);
   }
 
   if (m.taxa && m.taxa.bruto > 0) {
