@@ -181,6 +181,38 @@ const metodoDeclarado = (p: OrderNode) => {
  * Separado para ser testável sem rede: é a regra que decide se "pago por
  * outra pessoa" vira conferência ou vira dúvida, e ela precisa de teste.
  */
+/**
+ * O conjunto de pedidos que soma exatamente o valor de uma cobrança.
+ *
+ * A cliente monta dois pedidos e paga os dois num link só — #141536 (R$ 712,22)
+ * e #141537 (R$ 679,70) numa cobrança de R$ 1.391,92. Sem isto, o primeiro
+ * pedido reivindicava a cobrança inteira e o segundo saía como dinheiro que
+ * não existe.
+ *
+ * Devolve `null` quando nenhum conjunto soma o valor **ou** quando mais de um
+ * soma: dois conjuntos diferentes com a mesma soma é empate, e escolher seria
+ * chute.
+ */
+export function grupoQueSoma(
+  pedidos: Array<{ pedido: string; valor: number }>,
+  alvo: number,
+): string[] | null {
+  // Acima de 10 pedidos no mesmo e-mail e no mesmo dia isto deixa de ser
+  // "cliente comprou duas vezes" e vira outra coisa; não vale varrer 2^n.
+  if (pedidos.length < 2 || pedidos.length > 10) return null;
+
+  const candidatos: string[][] = [];
+  for (let mascara = 1; mascara < 1 << pedidos.length; mascara++) {
+    const grupo = pedidos.filter((_, i) => mascara & (1 << i));
+    if (grupo.length < 2) continue;
+    const soma = grupo.reduce((s, p) => s + p.valor, 0);
+    if (Math.abs(soma - alvo) <= TOLERANCIA) candidatos.push(grupo.map((p) => p.pedido));
+  }
+
+  if (candidatos.length !== 1) return null;
+  return candidatos[0];
+}
+
 export function cobrancasDoMesmoValor(
   valor: number,
   pagos: PedidoPagarme[],
@@ -218,6 +250,18 @@ export async function conferirPagosAMao(
   ]);
   const pagos = naPagarme.filter((p) => p.pago);
   const usados = new Set<string>();
+
+  /**
+   * Pedidos pagos juntos numa cobrança só, por e-mail.
+   *
+   * Resolvido antes do laço porque a ordem importa: se o primeiro pedido do
+   * grupo rodasse sozinho, ele reivindicaria a cobrança cheia e o segundo
+   * ficaria sem nada.
+   */
+  const compartilhado = new Map<
+    string,
+    { cobranca: PedidoPagarme; junto: string[] }
+  >();
 
   const conferir = (p: OrderNode): PedidoManual => {
     const valor = valorManual(p);
@@ -280,6 +324,29 @@ export async function conferirPagosAMao(
         semRastro: 0,
         codigo: null,
         chargeId: null,
+      };
+    }
+
+    /*
+     * Pago junto com outro pedido: a conta já foi fechada no grupo. Cada
+     * pedido responde pela sua parte, e a nota diz com quem ele foi pago —
+     * senão "R$ 712,22 na Pagar.me" não se explica diante de uma cobrança de
+     * R$ 1.391,92.
+     */
+    const emGrupo = compartilhado.get(p.name);
+    if (emGrupo) {
+      return {
+        pedido: p.name,
+        valor,
+        categoria: categoria(p),
+        email,
+        metodo,
+        situacao: "exato",
+        encontrado: valor,
+        semRastro: 0,
+        codigo: emGrupo.cobranca.codigo,
+        chargeId: emGrupo.cobranca.chargeId,
+        nota: `pago junto com ${emGrupo.junto.join(", ")} numa cobrança de R$ ${emGrupo.cobranca.valor.toFixed(2).replace(".", ",")}`,
       };
     }
 
@@ -358,6 +425,31 @@ export async function conferirPagosAMao(
       chargeId: achado?.chargeId ?? null,
     };
   };
+
+  /*
+   * Um pagamento, vários pedidos: procurar por e-mail, antes de qualquer
+   * casamento individual.
+   */
+  const porEmail = new Map<string, OrderNode[]>();
+  for (const p of manuais) {
+    const e = (p.email ?? "").toLowerCase();
+    if (e) porEmail.set(e, [...(porEmail.get(e) ?? []), p]);
+  }
+  for (const [email, dela] of porEmail) {
+    if (dela.length < 2) continue;
+    const lista = dela.map((p) => ({ pedido: p.name, valor: valorManual(p) }));
+    for (const c of pagos.filter((x) => x.email === email && !usados.has(x.id))) {
+      const grupo = grupoQueSoma(lista, c.valor);
+      if (!grupo) continue;
+      usados.add(c.id);
+      for (const nome of grupo) {
+        compartilhado.set(nome, {
+          cobranca: c,
+          junto: grupo.filter((x) => x !== nome),
+        });
+      }
+    }
+  }
 
   const todos = manuais.map(conferir).sort((a, b) => b.valor - a.valor);
   const vendas = todos.filter((x) => x.categoria === "venda");

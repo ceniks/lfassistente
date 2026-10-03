@@ -20,6 +20,8 @@
  */
 
 /** Para onde o comprovante diz que o dinheiro foi. */
+import { transcreverImagem } from "../agent/redacao.js";
+
 export type Trilho =
   | "mercadopago"
   | "pagbank"
@@ -69,6 +71,42 @@ export async function textoDePdf(pdf: Buffer): Promise<string> {
   return partes.join("\n");
 }
 
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/**
+ * A data e a hora do pagamento, nos dois formatos que os bancos usam.
+ *
+ * O Banco do Brasil escreve "22/09/2026 às 13:49:27"; o Itaú escreve
+ * "01 out. 2026, 17:59:59". Sem o segundo, todo print do app do Itaú virava
+ * documento ilegível e o pedido voltava para a lista de não encontrados.
+ */
+function dataDe(texto: string): { dia: string; hora: string } | null {
+  const barra = texto.match(
+    /(\d{2})\/(\d{2})\/(\d{4})\s*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/,
+  );
+  if (barra) {
+    const [, dd, mm, aaaa, hora] = barra;
+    return { dia: `${aaaa}-${mm}-${dd}`, hora: completar(hora) };
+  }
+
+  const extenso = texto.match(
+    /(\d{1,2})\s*(?:de\s*)?([a-zç]{3,})\.?\s*(?:de\s*)?(\d{4})[,\s]*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/i,
+  );
+  if (extenso) {
+    const [, dd, mes, aaaa, hora] = extenso;
+    const i = MESES.indexOf(mes.slice(0, 3).toLowerCase());
+    if (i >= 0) {
+      return {
+        dia: `${aaaa}-${String(i + 1).padStart(2, "0")}-${dd.padStart(2, "0")}`,
+        hora: completar(hora),
+      };
+    }
+  }
+  return null;
+}
+
+const completar = (hora: string) => (hora.length === 5 ? `${hora}:00` : hora);
+
 /** "1.289,09" -> 1289.09 */
 function numeroBr(txt: string): number {
   return Number(txt.replace(/\./g, "").replace(",", "."));
@@ -114,11 +152,10 @@ function trilhoDe(texto: string): { trilho: Trilho; instituicao: string } {
  */
 export function lerComprovante(arquivo: string, texto: string): Comprovante | null {
   const valores = [...texto.matchAll(/R\$\s*([\d.]+,\d{2})/g)].map((m) => numeroBr(m[1]));
-  const data = texto.match(/(\d{2})\/(\d{2})\/(\d{4})\s*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/);
+  const data = dataDe(texto);
   if (!valores.length || !data) return null;
 
-  const [, dd, mm, aaaa, hora] = data;
-  const dia = `${aaaa}-${mm}-${dd}`;
+  const { dia, hora } = data;
   const codigo =
     texto.match(/C[óo]digo da transa[çc][ãa]o:?\s*([A-Za-z0-9-]{8,})/)?.[1] ?? null;
 
@@ -127,23 +164,44 @@ export function lerComprovante(arquivo: string, texto: string): Comprovante | nu
     // O maior valor do documento é o do pagamento: recibo de link repete o
     // valor no total e nos itens, e taxa nunca é o maior número da página.
     valor: Math.max(...valores),
-    quando: `${dia} ${hora.length === 5 ? `${hora}:00` : hora}`,
+    quando: `${dia} ${hora}`,
     dia,
     codigo,
     ...trilhoDe(texto),
   };
 }
 
-/** Baixa e lê um anexo. Arquivo que não abre não derruba a conferência. */
+const TIPO_DE_IMAGEM: Record<string, "image/jpeg" | "image/png" | "image/webp" | "image/gif"> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/**
+ * Baixa e lê um anexo, seja PDF ou print do app do banco.
+ *
+ * Arquivo que não abre não derruba a conferência: devolve `null` e o pedido
+ * segue como se não houvesse comprovante. Falha de leitura virando casamento
+ * seria pior que não ler.
+ */
 export async function lerAnexo(
   arquivo: string,
   url: string,
 ): Promise<Comprovante | null> {
-  if (!/\.pdf$/i.test(arquivo)) return null;
+  const extensao = arquivo.split(".").pop()?.toLowerCase() ?? "";
+  const imagem = TIPO_DE_IMAGEM[extensao];
+  if (extensao !== "pdf" && !imagem) return null;
+
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!r.ok) return null;
-    const texto = await textoDePdf(Buffer.from(await r.arrayBuffer()));
+    const bytes = Buffer.from(await r.arrayBuffer());
+
+    const texto = imagem
+      ? await transcreverImagem(bytes, imagem)
+      : await textoDePdf(bytes);
     return lerComprovante(arquivo, texto);
   } catch {
     return null;

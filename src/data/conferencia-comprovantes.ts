@@ -46,6 +46,16 @@ export interface PedidoComComprovante {
   confirmado: number;
   /** O confirmado cobre o valor do pedido. */
   fecha: boolean;
+  /**
+   * Os outros pedidos que dividem o mesmo pagamento.
+   *
+   * A cliente monta dois pedidos e paga os dois num Pix só, anexando o mesmo
+   * comprovante nos dois — foi o caso do #141585 e do #141586, R$ 801,74 e
+   * R$ 559,80 num Pix de R$ 1.361,54. Sem isto, o primeiro fechava, o segundo
+   * saía como "não há lançamento desse valor" e o valor do comprovante não
+   * batia com nenhum dos dois.
+   */
+  junto: string[];
 }
 
 export interface ConferenciaComprovantes {
@@ -72,7 +82,9 @@ const emVolta = (dia: string) => {
  * Procura uma parte no trilho que ela declara.
  *
  * `usados` atravessa todas as buscas do dia: o mesmo Pix não pode fechar dois
- * pedidos, que é como uma conferência por valor produz falso positivo.
+ * pedidos, que é como uma conferência por valor produz falso positivo. A
+ * exceção é o pagamento compartilhado, tratado em `conferirComprovantes`: lá o
+ * lançamento é procurado **uma vez** para o grupo inteiro.
  */
 async function procurar(
   c: Comprovante,
@@ -190,6 +202,13 @@ async function procurar(
 const pendente = (v: PedidoManual) =>
   v.categoria === "venda" && (v.semRastro > TOLERANCIA || v.situacao === "pix-direto");
 
+const devidoDe = (v: PedidoManual) =>
+  v.situacao === "pix-direto" ? v.valor : v.semRastro;
+
+/** O que identifica um pagamento, para saber que dois pedidos dividem o mesmo. */
+export const chaveDoComprovante = (c: Comprovante) =>
+  `${c.trilho}|${c.quando}|${c.valor.toFixed(2)}`;
+
 export async function conferirComprovantes(
   dia: string,
   manual: ConferenciaManual | null,
@@ -202,37 +221,111 @@ export async function conferirComprovantes(
   }
 
   const anexos = await anexosDePedidos(pendentes.map((v) => v.pedido));
-  const usados = new Set<string>();
-  const pedidos: PedidoComComprovante[] = [];
+
+  // Primeiro ler tudo, depois decidir: só com todos os comprovantes na mão dá
+  // para ver que dois pedidos apontam para o mesmo pagamento.
+  const lidosPorPedido = new Map<string, Comprovante[]>();
   const semComprovante: string[] = [];
 
   for (const v of pendentes) {
-    const doPedido = anexos.get(v.pedido) ?? [];
-    if (!doPedido.length) {
-      semComprovante.push(v.pedido);
-      continue;
-    }
-
-    const lidos: ComprovanteConferido[] = [];
-    for (const a of doPedido) {
+    const lidos: Comprovante[] = [];
+    for (const a of anexos.get(v.pedido) ?? []) {
       const c = await lerAnexo(a.arquivo, a.url);
-      if (!c) continue;
-      lidos.push({ ...c, ...(await procurar(c, usados)) });
+      if (c) lidos.push(c);
     }
+    if (lidos.length) lidosPorPedido.set(v.pedido, lidos);
+    else semComprovante.push(v.pedido);
+  }
 
-    if (!lidos.length) {
-      semComprovante.push(v.pedido);
-      continue;
+  /*
+   * Quem divide pagamento com quem.
+   *
+   * Dois pedidos com o mesmo comprovante são um pagamento só, e o valor do
+   * documento tem que bater com a **soma** deles — não com cada um. Procurar
+   * duas vezes acharia o lançamento uma vez e acusaria o outro pedido de não
+   * ter contrapartida.
+   */
+  const grupo = new Map<string, string[]>();
+  for (const [pedido, lidos] of lidosPorPedido) {
+    for (const c of lidos) {
+      const k = chaveDoComprovante(c);
+      grupo.set(k, [...(grupo.get(k) ?? []), pedido]);
     }
+  }
 
-    const confirmado = lidos.filter((c) => c.casou).reduce((s, c) => s + c.valor, 0);
-    const devido = v.situacao === "pix-direto" ? v.valor : v.semRastro;
+  const usados = new Set<string>();
+  const resultado = new Map<string, ComprovanteConferido[]>();
+
+  // Busca uma vez por comprovante distinto, na ordem do maior valor — assim o
+  // pagamento compartilhado reivindica o lançamento antes de uma busca
+  // individual tropeçar nele.
+  const distintos = [...grupo.entries()]
+    .map(([k, pedidos]) => ({
+      k,
+      pedidos,
+      c: lidosPorPedido.get(pedidos[0])!.find((x) => chaveDoComprovante(x) === k)!,
+    }))
+    .sort((a, b) => b.c.valor - a.c.valor);
+
+  for (const { pedidos, c } of distintos) {
+    const achado = await procurar(c, usados);
+    const soma = pedidos.reduce(
+      (s, nome) => s + devidoDe(pendentes.find((v) => v.pedido === nome)!),
+      0,
+    );
+
+    /*
+     * Pagamento compartilhado que não bate com a soma do grupo não vale para
+     * ninguém: o comprovante prova um valor, e esse valor tem que ser o que os
+     * pedidos juntos devem. Caso contrário sobra ou falta dinheiro, e dizer
+     * qual dos dois está certo seria chute.
+     */
+    const confere =
+      achado.casou && (pedidos.length === 1 || perto(c.valor, soma));
+    const nota =
+      achado.casou && !confere
+        ? `o pagamento de ${c.valor.toFixed(2)} é de ${pedidos.length} pedidos, ` +
+          `mas eles somam ${soma.toFixed(2)}`
+        : achado.nota;
+
+    for (const nome of pedidos) {
+      resultado.set(nome, [
+        ...(resultado.get(nome) ?? []),
+        { ...c, casou: confere, lancamento: achado.lancamento, ...(nota ? { nota } : {}) },
+      ]);
+    }
+  }
+
+  const pedidos: PedidoComComprovante[] = [];
+  for (const v of pendentes) {
+    const lidos = resultado.get(v.pedido);
+    if (!lidos?.length) continue;
+    const devido = devidoDe(v);
+
+    /*
+     * No pagamento compartilhado, o pedido é coberto pela sua parte da soma —
+     * não pelo valor cheio do comprovante, que pertence ao grupo.
+     */
+    const confirmado = lidos
+      .filter((c) => c.casou)
+      .reduce((s, c) => {
+        const junto = grupo.get(chaveDoComprovante(c)) ?? [v.pedido];
+        return s + (junto.length > 1 ? devido : c.valor);
+      }, 0);
+
     pedidos.push({
       pedido: v.pedido,
       valor: devido,
       comprovantes: lidos,
       confirmado,
       fecha: confirmado + TOLERANCIA >= devido,
+      junto: [
+        ...new Set(
+          lidos.flatMap((c) =>
+            (grupo.get(chaveDoComprovante(c)) ?? []).filter((n) => n !== v.pedido),
+          ),
+        ),
+      ],
     });
   }
 

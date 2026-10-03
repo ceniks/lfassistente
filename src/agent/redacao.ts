@@ -99,3 +99,45 @@ export async function redigir(
 
   return texto;
 }
+
+/**
+ * Lê um comprovante que veio como imagem.
+ *
+ * Boa parte dos comprovantes chega como print do app do banco, não como PDF —
+ * o do #141585 é um JPG do Itaú. Não há OCR no container do Railway e instalar
+ * tesseract para ler cinco imagens por dia é caro demais em imagem e em
+ * manutenção; o modelo já está aqui, já é pago por chamada e lê print de banco
+ * sem treino nenhum.
+ *
+ * Devolve texto, de propósito: a extração de valor, data e instituição
+ * continua sendo a mesma do PDF, testável sem rede e sem modelo. O modelo é
+ * só o olho, nunca o juiz — ele não decide se o pagamento existe.
+ */
+export async function transcreverImagem(
+  imagem: Buffer,
+  tipo: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+): Promise<string> {
+  const r = await api().messages.create({
+    model: config().CLAUDE_MODEL,
+    max_tokens: 700,
+    system:
+      "Você transcreve comprovantes bancários. Devolva apenas o texto visível na imagem, " +
+      "linha por linha, preservando valores, datas, horários, nomes e números exatamente " +
+      "como aparecem. Não resuma, não interprete, não acrescente nada.",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: tipo, data: imagem.toString("base64") } },
+          { type: "text", text: "Transcreva este comprovante." },
+        ],
+      },
+    ],
+  });
+
+  return r.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
