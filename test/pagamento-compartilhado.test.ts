@@ -77,3 +77,33 @@ describe("comprovante do Itaú, data por extenso", () => {
     expect(801.74 + 559.8).toBeCloseTo(lerComprovante("print.jpg", pixItau)!.valor, 2);
   });
 });
+
+describe("um pedido, várias cobranças", () => {
+  // O caminho inverso: a atendente manda um link, a cliente paga parte, e o
+  // resto vai num segundo link. A soma não pode ultrapassar o valor do pedido,
+  // senão a cobrança de outro pedido da mesma cliente seria engolida.
+  const somarAteCaber = (valores: number[], valor: number) => {
+    const somadas: number[] = [];
+    let soma = 0;
+    for (const v of [...valores].sort((a, b) => b - a)) {
+      if (soma + v <= valor + 0.01) {
+        somadas.push(v);
+        soma += v;
+      }
+    }
+    return { somadas, soma };
+  };
+
+  it("duas cobranças cobrem a mercadoria do #142107", () => {
+    const { somadas, soma } = somarAteCaber([1800, 270.43], 2146.4);
+    expect(somadas).toEqual([1800, 270.43]);
+    expect(soma).toBeCloseTo(2070.43, 2);
+    // Sobra o frete do pedido, ao centavo.
+    expect(2146.4 - soma).toBeCloseTo(75.97, 2);
+  });
+
+  it("não engole cobrança que estouraria o valor do pedido", () => {
+    const { somadas } = somarAteCaber([1800, 500], 2146.4);
+    expect(somadas).toEqual([1800]);
+  });
+});

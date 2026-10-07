@@ -141,6 +141,23 @@ const capturasManuais = (p: OrderNode) =>
 
 const ehManual = (p: OrderNode) => capturasManuais(p).length > 0;
 
+const freteDe = (p: OrderNode) =>
+  Number(p.totalShippingPriceSet?.shopMoney?.amount ?? 0);
+
+/**
+ * A sobra é exatamente o frete?
+ *
+ * Padrão real e repetido: o link de pagamento é criado pelo valor da
+ * mercadoria e o frete fica de fora. O #142107 deixou R$ 75,97 e o #142057
+ * R$ 45,48 — os dois, ao centavo, o frete do próprio pedido. Dizer isso vale
+ * muito mais que mostrar um número solto, porque aponta a causa: o link foi
+ * montado sem o frete, não falta dinheiro misterioso.
+ */
+const sobraEhOFrete = (p: OrderNode, sobra: number) => {
+  const frete = freteDe(p);
+  return frete > 0 && Math.abs(sobra - frete) <= TOLERANCIA;
+};
+
 const valorManual = (p: OrderNode) =>
   capturasManuais(p).reduce(
     (s, t) => s + Number(t.amountSet?.shopMoney?.amount ?? 0),
@@ -357,7 +374,56 @@ export async function conferirPagosAMao(
       .sort((a, b) => b.valor - a.valor);
 
     const exato = dela.find((c) => Math.abs(c.valor - valor) <= TOLERANCIA);
-    const achado = exato ?? dela[0];
+
+    /*
+     * O inverso do pagamento compartilhado: **um pedido, vários links**.
+     *
+     * A atendente manda um link, a cliente paga parte, e o resto vai num
+     * segundo link. O #142107 é o caso: R$ 1.800,00 e R$ 270,43, os dois
+     * pagos, mesma cliente, mesmo dia. Olhando uma cobrança só, o boletim
+     * dizia "R$ 1.800 de R$ 2.146" e cobrava explicação de R$ 346 que já
+     * estavam pagos — e escondia a diferença que sobra de verdade.
+     *
+     * Do maior para o menor, somando enquanto couber no valor do pedido:
+     * nunca ultrapassa, então cobrança de outro pedido da mesma cliente não é
+     * engolida por esta conta.
+     */
+    const somadas: PedidoPagarme[] = [];
+    if (!exato) {
+      let soma = 0;
+      for (const c of dela) {
+        if (soma + c.valor <= valor + TOLERANCIA) {
+          somadas.push(c);
+          soma += c.valor;
+        }
+      }
+    }
+
+    if (!exato && somadas.length > 1) {
+      const soma = somadas.reduce((t, c) => t + c.valor, 0);
+      for (const c of somadas) usados.add(c.id);
+      return {
+        pedido: p.name,
+        valor,
+        categoria: categoria(p),
+        email,
+        metodo,
+        situacao: Math.abs(soma - valor) <= TOLERANCIA ? "exato" : "parcial",
+        encontrado: soma,
+        semRastro: Math.max(0, valor - soma),
+        codigo: somadas.map((c) => c.codigo).join(" + "),
+        chargeId: somadas[0].chargeId,
+        nota:
+          `pago em ${somadas.length} cobranças da Pagar.me (${somadas
+            .map((c) => `R$ ${c.valor.toFixed(2).replace(".", ",")}`)
+            .join(" + ")})` +
+          (sobraEhOFrete(p, valor - soma)
+            ? " — a diferença é exatamente o frete, que ficou fora dos links"
+            : ""),
+      };
+    }
+
+    const achado = exato ?? somadas[0] ?? dela[0];
     if (achado) usados.add(achado.id);
 
     /*
@@ -423,6 +489,9 @@ export async function conferirPagosAMao(
       semRastro: Math.max(0, valor - encontrado),
       codigo: achado?.codigo ?? null,
       chargeId: achado?.chargeId ?? null,
+      ...(situacao === "parcial" && sobraEhOFrete(p, valor - encontrado)
+        ? { nota: "a diferença é exatamente o frete, que ficou fora da cobrança" }
+        : {}),
     };
   };
 
