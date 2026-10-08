@@ -21,7 +21,12 @@
  *     dois sistemas, e poluir a lista com ela custa a autoridade do relatório
  *     justamente onde ela importa.
  */
-import { estornosEntre, reembolsosDePedidos, type Estorno } from './shopify.js';
+import {
+  estornosEntre,
+  observacoesDePedidos,
+  reembolsosDePedidos,
+  type Estorno,
+} from './shopify.js';
 import { detalhe, finalizadaEm, listar, valorPago, type Reversa } from './troque.js';
 
 export interface DivergenciaSimples {
@@ -29,7 +34,36 @@ export interface DivergenciaSimples {
   valor: number;
   /** O que se sabe do outro lado. */
   situacao: string;
+  /** A observação que o atendimento escreveu no pedido, quando existe. */
+  observacao?: string;
+  /**
+   * Explicado pela observação, não é divergência de verdade.
+   *
+   * "AO REMETENTE" significa que o pacote voltou e não houve reenvio: o
+   * dinheiro saiu na Shopify e reversa nenhuma foi aberta, porque não há
+   * troca. Contar isso como divergência manda procurar no Troquecommerce um
+   * caso que nunca vai existir lá.
+   */
+  explicado?: boolean;
 }
+
+/**
+ * Observações que explicam um reembolso sem reversa.
+ *
+ * Uma só, por enquanto, e explícita de propósito: texto livre que não casa
+ * com nenhum padrão conhecido continua aparecendo como divergência, com a
+ * observação ao lado para quem lê decidir. Inventar interpretação de nota
+ * livre seria transformar palpite em conferência.
+ */
+const EXPLICACOES: Array<{ padrao: RegExp; diz: string }> = [
+  {
+    padrao: /ao\s*remetente/i,
+    diz: 'devolvido ao remetente, sem reenvio — não passa pelo Troquecommerce',
+  },
+];
+
+export const explicacaoDe = (nota: string | undefined) =>
+  nota ? EXPLICACOES.find((e) => e.padrao.test(nota))?.diz : undefined;
 
 export interface DivergenciaDeValor {
   pedido: string;
@@ -270,6 +304,23 @@ export async function conferirEstorno(de: string, ate: string): Promise<Concilia
   }
 
   const somar = <T>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
+
+  /*
+   * Só agora, e só para quem sobrou: uma consulta por nome para os reembolsos
+   * sem reversa. Buscar a observação de todo pedido do período seria caro e
+   * inútil — ela só muda a leitura destes.
+   */
+  const observacoes = await observacoesDePedidos(soShopify.map((x) => x.pedido));
+  for (const x of soShopify) {
+    const nota = observacoes.get(x.pedido);
+    if (!nota) continue;
+    x.observacao = nota;
+    const diz = explicacaoDe(nota);
+    if (diz) {
+      x.situacao = diz;
+      x.explicado = true;
+    }
+  }
 
   return {
     de,

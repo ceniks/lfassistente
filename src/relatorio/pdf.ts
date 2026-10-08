@@ -2114,8 +2114,17 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
       );
     }
 
+    /*
+     * Reembolso que a observação do pedido explica não é divergência.
+     *
+     * "AO REMETENTE" quer dizer que o pacote voltou e não houve reenvio: não
+     * existe reversa para achar no Troquecommerce. Mandar procurar é mandar
+     * perder tempo com um caso já resolvido e escrito no pedido.
+     */
+    const explicados = c.soShopify.filter((x) => x.explicado);
+    const semExplicacao = c.soShopify.filter((x) => !x.explicado);
     const divergentes =
-      c.soShopify.length + c.soTroque.length + c.valorDiferente.length;
+      semExplicacao.length + c.soTroque.length + c.valorDiferente.length;
     linha(
       doc,
       "Pedidos divergentes",
@@ -2151,10 +2160,34 @@ function secaoTrocas(doc: Doc, d: DadosRelatorio) {
       );
     }
 
+    if (explicados.length) {
+      linha(
+        doc,
+        "Explicados pela observação",
+        numero(explicados.length),
+        `${dinheiro(explicados.reduce((s, x) => s + x.valor, 0))} — reembolso sem reversa que o pedido já justifica`,
+        TINTA3,
+      );
+      tabela(
+        doc,
+        ["Pedido", "O que o pedido diz", "Valor"],
+        explicados.map((x) => [x.pedido, x.observacao ?? x.situacao, dinheiro(x.valor)]),
+        [70, LARGURA - 160, 90],
+        ["left", "left", "right"],
+      );
+    }
+
     if (divergentes > 0) {
       const linhas: string[][] = [];
-      for (const x of c.soShopify) {
-        linhas.push([x.pedido, "Só na Shopify", x.situacao, dinheiro(x.valor)]);
+      for (const x of semExplicacao) {
+        linhas.push([
+          x.pedido,
+          "Só na Shopify",
+          // A observação do atendimento vale mais que a nossa dedução: quando
+          // existe, é ela que diz por que o dinheiro saiu.
+          x.observacao ? `${x.situacao} · obs.: ${x.observacao}` : x.situacao,
+          dinheiro(x.valor),
+        ]);
       }
       for (const x of c.soTroque) {
         linhas.push([

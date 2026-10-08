@@ -1913,6 +1913,40 @@ export async function trafegoDoDia(dia: string): Promise<Trafego> {
  * único registro que existe para o que já foi criado, e ignorá-lo seria jogar
  * fora a única pista.
  */
+/**
+ * A observação que o atendimento escreveu no pedido.
+ *
+ * É onde mora o motivo do estorno quando ele não passa pelo Troquecommerce:
+ * o #139004 traz "Estornado por: AO REMETENTE" — o pacote voltou e não houve
+ * reenvio, então nunca existiu reversa. Sem ler isto, o relatório chama de
+ * divergência um caso que o atendimento já explicou por escrito.
+ */
+export async function observacoesDePedidos(
+  nomes: string[],
+): Promise<Map<string, string>> {
+  const fora = new Map<string, string>();
+  if (!nomes.length) return fora;
+
+  const query = `query($q: String!) {
+    orders(first: 50, query: $q) { nodes { name note } }
+  }`;
+
+  for (let i = 0; i < nomes.length; i += 20) {
+    const bloco = nomes.slice(i, i + 20);
+    const q = bloco.map((n) => `name:${n.replace("#", "")}`).join(" OR ");
+    const r = await admin<{ orders: { nodes: Array<{ name: string; note: string | null }> } }>(
+      query,
+      { q },
+    );
+    for (const o of r.orders.nodes) {
+      const nota = (o.note ?? "").replace(/\s+/g, " ").trim();
+      if (nota) fora.set(o.name, nota);
+    }
+  }
+
+  return fora;
+}
+
 export interface AnexoDePedido {
   pedido: string;
   arquivo: string;
