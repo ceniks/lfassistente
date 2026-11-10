@@ -270,6 +270,17 @@ const schema = z.object({
   RH_SENHA: opcional(z.string()),
 
   /**
+   * Para onde vai o boletim quando o WhatsApp não entrega.
+   *
+   * Em 09/10 e de novo em 08/11 a instância caiu com 401 e o boletim ficou
+   * pronto sem ter por onde sair. O aviso de erro ia pelo próprio WhatsApp —
+   * isto é, pelo canal que tinha caído —, então nos dois casos a falha só foi
+   * descoberta porque alguém notou a ausência. Sem este endereço, o
+   * comportamento antigo continua; com ele, boletim e aviso saem por e-mail.
+   */
+  EMAIL_ALERTA: opcional(z.string()),
+
+  /**
    * Chave do MCP.AI — dá acesso de leitura ao Open Finance (extrato do PagBank
    * e do Santander). É o que permite conferir o Pix que cai direto na conta,
    * sem passar por gateway.

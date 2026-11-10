@@ -14,7 +14,13 @@ export interface TentativaDeResumo {
   erro?: string;
   duracaoEmSegundos?: number;
   /** O boletim em PDF sai depois do resumo e falha por conta própria. */
-  pdf?: { situacao: 'enviado' | 'falhou'; erro?: string; tamanhoEmKb?: number };
+  pdf?: {
+    situacao: 'enviado' | 'falhou';
+    erro?: string;
+    tamanhoEmKb?: number;
+    /** O boletim saiu por e-mail depois que o WhatsApp recusou. */
+    porEmail?: boolean;
+  };
 }
 
 let ultima: TentativaDeResumo | null = null;
@@ -37,7 +43,7 @@ export function resumoTerminou(situacao: 'enviado' | 'falhou', erro?: string): v
 
 export function boletimTerminou(
   situacao: 'enviado' | 'falhou',
-  extra: { erro?: string; tamanhoEmKb?: number } = {},
+  extra: { erro?: string; tamanhoEmKb?: number; porEmail?: boolean } = {},
 ): void {
   if (!ultima) return;
   ultima = { ...ultima, pdf: { situacao, ...extra } };

@@ -240,6 +240,27 @@ marcadores `{tratamento}`, `{primeiro}`, `{nome}` e `{mes}`. A página carrega
 esses modelos em campos editáveis: dá para ajustar o texto de um mês específico
 sem mexer em variável nenhuma.
 
+## Quando o WhatsApp cai
+
+A instância já caiu duas vezes com `disconnectionReasonCode: 401` — 09/10 e
+08/11 — e nas duas o boletim ficou pronto sem ter por onde sair. O aviso de
+erro ia pelo próprio WhatsApp, ou seja, pelo canal quebrado: a falha só foi
+descoberta porque alguém notou a ausência.
+
+Com `EMAIL_ALERTA` configurada (e o Gmail já autorizado), a falha passa a sair
+por e-mail **com o PDF em anexo**. Sem ela, o comportamento antigo continua.
+
+| Variável | Para quê |
+|---|---|
+| `EMAIL_ALERTA` | endereço que recebe o boletim quando o WhatsApp não entrega |
+
+O `/diag` mostra `integracoes.emailDeAlerta`, para separar "não fui avisado" de
+"a variável não está lá".
+
+Para religar o WhatsApp: manager da Evolution, instância `lf` → Connect, e
+escanear com o celular do bot. O 401 costuma ser sessão expirada — manter o
+celular do bot online de tempos em tempos reduz a recorrência.
+
 ## Dois sistemas no mesmo número
 
 A Evolution entrega os eventos de uma instância para **um** webhook. Se outro
