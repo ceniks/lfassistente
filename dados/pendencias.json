@@ -1,0 +1,10 @@
+{
+ "#145746": {
+  "pedido": "#145746",
+  "tipo": "sem-contrapartida",
+  "valor": 613.2,
+  "motivo": "declarado pagar.me, sem cobrança e sem Pix na conta",
+  "desde": "2026-11-12",
+  "cobradaEm": []
+ }
+}

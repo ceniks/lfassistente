@@ -3,6 +3,7 @@ import { config, ehDono } from '../config.js';
 import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './evolution.js';
 import { rotasDeRh } from '../rh/web.js';
 import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
+import { emAberto } from '../cobranca/pendencias.js';
 import {
   descartarLote,
   enviarLote,
@@ -81,6 +82,9 @@ export function criarApp() {
       // Só sim/não: sem isto, "por que não fui avisado?" não se distingue de
       // "a variável do e-mail nunca foi configurada".
       emailDeAlerta: Boolean(c.EMAIL_ALERTA && c.GMAIL_REFRESH_TOKEN),
+      // Só sim/não: o JID do grupo não é segredo, mas saber se a cobrança
+      // está ligada é o que separa "ninguém foi cobrado" de "não configurado".
+      cobrancaNoGrupo: Boolean(c.GRUPO_ATENDIMENTO),
       // Só o host, nunca a chave: existe porque a URL da Evolution vive no
       // painel do Railway e descobri-la por captura de tela é lento e erra.
       evolutionHost: c.EVOLUTION_URL ? new URL(c.EVOLUTION_URL).host : null,
@@ -105,6 +109,15 @@ export function criarApp() {
       // As últimas tentativas de repasse, em memória. Zera a cada deploy.
       ultimosRepasses: ultimosRepasses(),
       ultimoEvento: ultimoEventoRecebido(),
+      // O que o atendimento ainda deve explicar, para conferir sem abrir o
+      // grupo — e para saber que o livro não parou de ser atualizado.
+      pendencias: emAberto().map((p) => ({
+        pedido: p.pedido,
+        valor: p.valor,
+        tipo: p.tipo,
+        desde: p.desde,
+        cobranças: p.cobradaEm.length,
+      })),
       // Os JIDs que o repasse reconhece. Não é segredo — é grupo — e sem ver a
       // lista um repasse vazio se confunde com JID escrito errado na variável.
       jidsDeRepasse: jidsDeRepasse(),

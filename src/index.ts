@@ -8,6 +8,7 @@ import { boletimTerminou, resumoComecou, resumoTerminou } from './digest/estado.
 import { gerarBoletim } from './relatorio/index.js';
 import { aquecerCacheDeReversas } from './data/retorno.js';
 import { avisarPorEmail } from './digest/alerta.js';
+import { cobrarNoGrupo } from './cobranca/index.js';
 
 // Valida o conjunto obrigatório antes de qualquer coisa subir.
 const c = exigirConfigCompleta();
@@ -75,6 +76,18 @@ cron.schedule(
       resumoTerminou('enviado');
       boletimTerminou('enviado', { tamanhoEmKb: kb });
       console.log(`[boletim] enviado para ${entregues} número(s) (${kb} KB)`);
+
+      /*
+       * A cobrança vem depois da entrega, e nunca derruba o boletim.
+       *
+       * Depois porque o boletim é o documento e a cobrança é consequência
+       * dele: se a montagem falhou, não há conferência em que confiar para
+       * cobrar ninguém.
+       */
+      const c = await cobrarNoGrupo(dia, b.dados);
+      console.log(
+        `[cobranca] ${c.enviada ? `enviada: ${c.abertas} em aberto, ${c.resolvidas} resolvida(s)` : `não enviada (${c.motivo})`}`,
+      );
     } catch (e) {
       const erro = e instanceof Error ? e.message : String(e);
       const data = dia.split('-').reverse().join('/');

@@ -240,6 +240,47 @@ marcadores `{tratamento}`, `{primeiro}`, `{nome}` e `{mes}`. A página carrega
 esses modelos em campos editáveis: dá para ajustar o texto de um mês específico
 sem mexer em variável nenhuma.
 
+## Cobrança no grupo do atendimento
+
+Todo dia, junto do boletim, o assistente manda no grupo do atendimento os
+pedidos que ficaram sem explicação. Entram dois tipos, e só eles:
+
+| Tipo | O que é | Ação de quem lê |
+|---|---|---|
+| `sem-contrapartida` | pago na Shopify, sem cobrança em gateway nem Pix na conta | anexar comprovante, ou desfazer a marcação de pago |
+| `parcial` | cobrança encontrada menor que o pedido | cobrar o resto, ou explicar a diferença |
+
+Estorno sem reversa e reversa sem estorno ficam **fora**: são conversa de
+financeiro, e misturar os dois públicos é o começo do ruído.
+
+| Variável | Para quê |
+|---|---|
+| `GRUPO_ATENDIMENTO` | JID do grupo (`...@g.us`). Sem ela, nada é enviado |
+
+O JID sai de `GET /group/fetchAllGroups/lf?getParticipants=false`, e o número
+do bot precisa estar no grupo.
+
+### Como a cobrança sabe parar
+
+O livro fica em `dados/pendencias.json` (volume `/app/dados`). O critério de
+encerramento **não é alguém dar baixa** — é a divergência deixar de aparecer
+na conferência. Quando o pagamento aparece no gateway, no extrato ou num
+comprovante anexado ao pedido, a pendência fecha sozinha e a mensagem do dia
+seguinte lista o pedido como resolvido.
+
+Isso é deliberado: dar baixa à mão é o tipo de tarefa que não é feita, e uma
+lista que só cresce vira ruído que todo mundo aprende a ignorar — o oposto do
+que a cobrança existe para fazer.
+
+Duas travas contra cobrar errado:
+
+- **Conferência incompleta não cobra.** Se o extrato não veio inteiro, metade
+  das pendências pode ser falsa; o boletim sai e a cobrança é adiada.
+- **A cobrança vem depois da entrega do boletim.** Montagem que falhou não
+  produz conferência em que confiar.
+
+O `/diag` mostra `integracoes.cobrancaNoGrupo` e a lista `pendencias`.
+
 ## Quando o WhatsApp cai
 
 A instância já caiu duas vezes com `disconnectionReasonCode: 401` — 09/10 e

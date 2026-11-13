@@ -1,4 +1,4 @@
-import { coletar } from './dados.js';
+import { coletar, type DadosRelatorio } from './dados.js';
 import { gerarPdf, nomeDoArquivo } from './pdf.js';
 import { redigir } from '../agent/redacao.js';
 import { PROMPT_RELATORIO } from '../agent/prompt.js';
@@ -19,6 +19,14 @@ export interface Boletim {
   pdf: Buffer;
   nome: string;
   legenda: string;
+  /**
+   * Os dados já coletados.
+   *
+   * A cobrança no grupo do atendimento sai dos mesmos números do PDF, e
+   * recalcular seria pagar dois minutos de API de novo para, no pior caso,
+   * chegar a um resultado levemente diferente do que o boletim mostrou.
+   */
+  dados: DadosRelatorio;
 }
 
 export async function gerarBoletim(dia = ontem()): Promise<Boletim> {
@@ -58,6 +66,7 @@ export async function gerarBoletim(dia = ontem()): Promise<Boletim> {
     pdf,
     nome: nomeDoArquivo(dia),
     legenda: `Boletim completo de ${dia.split('-').reverse().join('/')}`,
+    dados,
   };
 }
 

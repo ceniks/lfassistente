@@ -281,6 +281,15 @@ const schema = z.object({
   EMAIL_ALERTA: opcional(z.string()),
 
   /**
+   * O grupo do atendimento, como JID (`...@g.us`).
+   *
+   * Sem ele a cobrança diária não sai — e esse é o padrão de propósito:
+   * mandar mensagem no grupo de outras pessoas é efeito colateral, e precisa
+   * ser ligado por quem responde por ele.
+   */
+  GRUPO_ATENDIMENTO: opcional(z.string()),
+
+  /**
    * Chave do MCP.AI — dá acesso de leitura ao Open Finance (extrato do PagBank
    * e do Santander). É o que permite conferir o Pix que cai direto na conta,
    * sem passar por gateway.
