@@ -75,6 +75,27 @@ describe("mensagem da cobrança", () => {
     expect(t).toContain("aberto há 3 dias");
   });
 
+  it("o nome de quem marcou como pago vem junto do pedido", () => {
+    const t = montarCobranca("2026-11-15", {
+      novas: [
+        { ...p("#145746", 613.2), responsavel: "Gabriela Santos", desde: "2026-11-15", cobradaEm: [] },
+      ],
+      antigas: [],
+      resolvidas: [],
+    })!;
+    expect(t).toContain("#145746 (Gabriela Santos)");
+  });
+
+  it("pedido sem responsável conhecido não ganha parênteses vazio", () => {
+    const t = montarCobranca("2026-11-15", {
+      novas: [{ ...p("#9", 10), desde: "2026-11-15", cobradaEm: [] }],
+      antigas: [],
+      resolvidas: [],
+    })!;
+    expect(t).toContain("#9 — R$ 10,00");
+    expect(t).not.toContain("()");
+  });
+
   it("o que fechou também é dito", () => {
     const t = montarCobranca("2026-11-15", {
       novas: [],

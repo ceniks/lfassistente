@@ -24,6 +24,8 @@ export interface Pendencia {
   tipo: TipoDePendencia;
   valor: number;
   motivo: string;
+  /** Quem marcou o pedido como pago, ou quem o criou. */
+  responsavel?: string;
   /** Dia do boletim em que apareceu pela primeira vez. */
   desde: string;
   /** Dias em que foi cobrada no grupo. */
@@ -75,7 +77,13 @@ export function conciliar(
       // Valor e motivo são atualizados: um parcial pode mudar de tamanho
       // quando parte do pagamento aparece, e cobrar o número velho seria
       // cobrar errado.
-      const atualizada: Pendencia = { ...antiga, valor: a.valor, motivo: a.motivo, tipo: a.tipo };
+      const atualizada: Pendencia = {
+        ...antiga,
+        valor: a.valor,
+        motivo: a.motivo,
+        tipo: a.tipo,
+        ...(a.responsavel ? { responsavel: a.responsavel } : {}),
+      };
       livro[a.pedido] = atualizada;
       antigas.push(atualizada);
     } else {

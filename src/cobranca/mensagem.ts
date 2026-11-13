@@ -26,7 +26,15 @@ const TETO = 15;
 function linha(p: Pendencia, hoje: string): string {
   const dias = diasEntre(p.desde, hoje);
   const idade = dias === 0 ? "" : dias === 1 ? " · aberto desde ontem" : ` · aberto há ${dias} dias`;
-  return `• ${p.pedido} — ${dinheiro(p.valor)} — ${p.motivo}${idade}`;
+  /*
+   * O nome vem logo depois do pedido, não no fim da linha.
+   *
+   * Cobrança sem dono é cobrança de ninguém: numa lista de oito pedidos, cada
+   * um lê e supõe que o caso é de outra pessoa. Com o nome na frente, quem
+   * precisa agir se reconhece na primeira passada de olho.
+   */
+  const quem = p.responsavel ? ` (${p.responsavel})` : "";
+  return `• ${p.pedido}${quem} — ${dinheiro(p.valor)} — ${p.motivo}${idade}`;
 }
 
 /**

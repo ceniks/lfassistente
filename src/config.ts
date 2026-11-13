@@ -290,6 +290,16 @@ const schema = z.object({
   GRUPO_ATENDIMENTO: opcional(z.string()),
 
   /**
+   * Primeiro dia que a cobrança considera (AAAA-MM-DD).
+   *
+   * O que ficou para trás não é cobrado: a divergência de um mês atrás ou já
+   * foi resolvida por fora, ou não vai ser resolvida por uma mensagem hoje —
+   * e abrir o recurso com uma lista velha é a forma mais rápida de ensinar o
+   * grupo a ignorá-lo.
+   */
+  COBRANCA_DESDE: opcional(z.string()),
+
+  /**
    * Chave do MCP.AI — dá acesso de leitura ao Open Finance (extrato do PagBank
    * e do Santander). É o que permite conferir o Pix que cai direto na conta,
    * sem passar por gateway.

@@ -1947,6 +1947,54 @@ export async function observacoesDePedidos(
   return fora;
 }
 
+/**
+ * Quem, na equipe, respondeu por este pedido.
+ *
+ * O campo `staffMember` da API exige `read_users` e plano Plus — pedi e tomei
+ * "Access denied". O que sobra, e basta, é a linha do tempo: ela diz
+ * "Fulana criou este pedido" e "Fulana marcou R$ X como pago", em inglês,
+ * com o nome da atendente no começo.
+ *
+ * Preferimos quem **marcou como pago**: é a pessoa que afirmou que o dinheiro
+ * entrou, e portanto quem tem a resposta quando ele não aparece. Quem criou o
+ * pedido é a segunda opção, para o caso de a marcação ter vindo por
+ * integração.
+ */
+export async function responsaveisDePedidos(
+  nomes: string[],
+): Promise<Map<string, string>> {
+  const fora = new Map<string, string>();
+  if (!nomes.length) return fora;
+
+  const query = `query($q: String!) {
+    orders(first: 50, query: $q) { nodes { name events(first: 30) { nodes { message } } } }
+  }`;
+
+  const limpar = (m: string) => m.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+  for (let i = 0; i < nomes.length; i += 20) {
+    const bloco = nomes.slice(i, i + 20);
+    const q = bloco.map((n) => `name:${n.replace("#", "")}`).join(" OR ");
+    const r = await admin<{
+      orders: { nodes: Array<{ name: string; events: { nodes: Array<{ message: string }> } }> };
+    }>(query, { q });
+
+    for (const o of r.orders.nodes) {
+      let marcou: string | null = null;
+      let criou: string | null = null;
+      for (const e of o.events.nodes) {
+        const m = limpar(e.message ?? "");
+        marcou ??= m.match(/^(.+?) manually marked .* as paid for this order/)?.[1] ?? null;
+        criou ??= m.match(/^(.+?) created this order for /)?.[1] ?? null;
+      }
+      const quem = marcou ?? criou;
+      if (quem) fora.set(o.name, quem);
+    }
+  }
+
+  return fora;
+}
+
 export interface AnexoDePedido {
   pedido: string;
   arquivo: string;

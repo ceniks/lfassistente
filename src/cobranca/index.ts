@@ -17,6 +17,7 @@ import { enviarTexto } from "../whatsapp/evolution.js";
 import type { DadosRelatorio } from "../relatorio/dados.js";
 import { montarCobranca } from "./mensagem.js";
 import { conciliar, marcarCobradas, type Pendencia } from "./pendencias.js";
+import { responsaveisDePedidos } from "../data/shopify.js";
 
 export function temGrupoDeAtendimento(): boolean {
   return Boolean(config().GRUPO_ATENDIMENTO);
@@ -77,8 +78,32 @@ export async function cobrarNoGrupo(
     };
   }
 
+  /*
+   * Marco zero: o que é de antes não se cobra.
+   *
+   * A conferência é por dia e só enxerga os pedidos daquele dia, então o
+   * passado não entra sozinho. Esta trava existe para o caso de alguém rodar
+   * o boletim de um dia antigo à mão — aí a cobrança sairia com pedidos que
+   * já foram resolvidos por fora, cobrando gente por coisa velha.
+   */
+  const desde = config().COBRANCA_DESDE;
+  if (desde && dia < desde) {
+    return { enviada: false, abertas: 0, resolvidas: 0, motivo: `dia anterior ao marco (${desde})` };
+  }
+
   try {
-    const m = conciliar(dia, pendenciasDoDia(d));
+    const pendentes = pendenciasDoDia(d);
+
+    // Uma consulta só, e apenas para quem vai ser cobrado.
+    const responsaveis = await responsaveisDePedidos(pendentes.map((p) => p.pedido)).catch(
+      () => new Map<string, string>(),
+    );
+    for (const p of pendentes) {
+      const quem = responsaveis.get(p.pedido);
+      if (quem) p.responsavel = quem;
+    }
+
+    const m = conciliar(dia, pendentes);
     const texto = montarCobranca(dia, m);
     const abertas = m.novas.length + m.antigas.length;
 

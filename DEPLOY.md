@@ -256,9 +256,17 @@ financeiro, e misturar os dois públicos é o começo do ruído.
 | Variável | Para quê |
 |---|---|
 | `GRUPO_ATENDIMENTO` | JID do grupo (`...@g.us`). Sem ela, nada é enviado |
+| `COBRANCA_DESDE` | primeiro dia considerado (AAAA-MM-DD). O que é de antes não é cobrado |
 
 O JID sai de `GET /group/fetchAllGroups/lf?getParticipants=false`, e o número
 do bot precisa estar no grupo.
+
+Cada linha nomeia a atendente: quem **marcou o pedido como pago**, ou quem o
+criou. O campo `staffMember` da API exige `read_users` e plano Plus — responde
+"Access denied" —, então o nome é lido da linha do tempo do pedido, que
+registra "Fulana manually marked R$ X as paid". Cobrança sem dono é cobrança
+de ninguém: numa lista de oito pedidos, cada um supõe que o caso é de outra
+pessoa.
 
 ### Como a cobrança sabe parar
 
