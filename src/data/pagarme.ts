@@ -25,7 +25,19 @@
 import { config } from "../config.js";
 
 const BASE = "https://api.pagar.me/core/v5";
-const POR_PAGINA = 100;
+/**
+ * A Pagar.me teto em 30 por página, peça-se o que pedir.
+ *
+ * Pedíamos 100, ela devolvia 30, e o laço parava em `lote.length < POR_PAGINA`
+ * logo na primeira página — jogando fora todo o resto do dia, em silêncio. Em
+ * 12/11 o dia tinha 90 pedidos e a conferência via 30: os 60 mais antigos
+ * viravam "não encontrado", entre eles o #145713, pago às 12:21.
+ *
+ * O número aqui é o que a API honra. A parada agora é por página vazia e pelo
+ * `paging.total`, não por comparação com um tamanho que ela ignora.
+ */
+const POR_PAGINA = 30;
+const MAX_PAGINAS = 200;
 
 export interface PedidoPagarme {
   id: string;
@@ -58,7 +70,9 @@ function autorizacao(): string {
 export async function pedidosDoDia(dia: string): Promise<PedidoPagarme[]> {
   const fora: PedidoPagarme[] = [];
 
-  for (let pagina = 1; pagina <= 20; pagina++) {
+  let total: number | null = null;
+
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const url =
       `${BASE}/orders?created_since=${encodeURIComponent(`${dia}T00:00:00-03:00`)}` +
       `&created_until=${encodeURIComponent(`${dia}T23:59:59-03:00`)}` +
@@ -70,8 +84,12 @@ export async function pedidosDoDia(dia: string): Promise<PedidoPagarme[]> {
     });
     if (!r.ok) throw new Error(`Pagar.me HTTP ${r.status}`);
 
-    const j = (await r.json()) as { data?: Array<Record<string, any>> };
+    const j = (await r.json()) as {
+      data?: Array<Record<string, any>>;
+      paging?: { total?: number };
+    };
     const lote = j.data ?? [];
+    if (total === null && typeof j.paging?.total === "number") total = j.paging.total;
 
     for (const p of lote) {
       const c = p.charges?.[0];
@@ -90,7 +108,26 @@ export async function pedidosDoDia(dia: string): Promise<PedidoPagarme[]> {
       });
     }
 
-    if (lote.length < POR_PAGINA) break;
+    /*
+     * Página vazia é o fim. Comparar com o tamanho pedido era o que escondia
+     * o corte, porque a API devolve menos do que se pede e isso parecia fim
+     * de lista.
+     */
+    if (!lote.length) break;
+    if (total !== null && fora.length >= total) break;
+  }
+
+  /*
+   * Conferir contra o total que a própria API declara.
+   *
+   * Sem isto, um corte volta a passar despercebido — e a conferência
+   * acusaria de "sem rastro" pedidos pagos que simplesmente não foram lidos.
+   * Faltar dado é erro; fingir que não faltou é pior.
+   */
+  if (total !== null && fora.length < total) {
+    throw new Error(
+      `Pagar.me: li ${fora.length} de ${total} pedidos em ${dia} — listagem incompleta`,
+    );
   }
 
   return fora;
