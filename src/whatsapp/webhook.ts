@@ -4,6 +4,7 @@ import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './
 import { rotasDeRh } from '../rh/web.js';
 import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
 import { emAberto } from '../cobranca/pendencias.js';
+import { ultimaCobranca } from '../cobranca/index.js';
 import {
   descartarLote,
   enviarLote,
@@ -109,6 +110,10 @@ export function criarApp() {
       // As últimas tentativas de repasse, em memória. Zera a cada deploy.
       ultimosRepasses: ultimosRepasses(),
       ultimoEvento: ultimoEventoRecebido(),
+      // Silêncio no grupo tem três causas que de fora parecem a mesma: nada a
+      // cobrar, conferência incompleta, ou envio que falhou. Aqui elas se
+      // separam sem refazer a conferência do dia.
+      ultimaCobranca: ultimaCobranca(),
       // O que o atendimento ainda deve explicar, para conferir sem abrir o
       // grupo — e para saber que o livro não parou de ser atualizado.
       pendencias: emAberto().map((p) => ({

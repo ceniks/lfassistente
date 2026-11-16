@@ -19,6 +19,30 @@ import { montarCobranca } from "./mensagem.js";
 import { conciliar, marcarCobradas, type Pendencia } from "./pendencias.js";
 import { responsaveisDePedidos } from "../data/shopify.js";
 
+export interface UltimaCobranca {
+  dia: string;
+  em: string;
+  enviada: boolean;
+  abertas: number;
+  resolvidas: number;
+  motivo?: string;
+}
+
+/**
+ * O resultado da última cobrança, em memória.
+ *
+ * Existe porque "nenhuma mensagem chegou no grupo" tem três causas que de
+ * fora parecem a mesma: não havia o que cobrar, a conferência veio
+ * incompleta, ou o envio falhou. Sem isto, responder "está correto?" exige
+ * refazer a conferência de cada dia à mão — foi o que custou esta resposta
+ * uma vez.
+ */
+let ultima: UltimaCobranca | null = null;
+
+export function ultimaCobranca(): UltimaCobranca | null {
+  return ultima;
+}
+
 export function temGrupoDeAtendimento(): boolean {
   return Boolean(config().GRUPO_ATENDIMENTO);
 }
@@ -66,16 +90,21 @@ export async function cobrarNoGrupo(
   dia: string,
   d: DadosRelatorio,
 ): Promise<{ enviada: boolean; abertas: number; resolvidas: number; motivo?: string }> {
+  const anotar = (r: { enviada: boolean; abertas: number; resolvidas: number; motivo?: string }) => {
+    ultima = { dia, em: new Date().toISOString(), ...r };
+    return r;
+  };
+
   const grupo = config().GRUPO_ATENDIMENTO;
-  if (!grupo) return { enviada: false, abertas: 0, resolvidas: 0, motivo: "sem grupo configurado" };
+  if (!grupo) return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo: "sem grupo configurado" });
 
   if (d.contrapartida.extratoIncompleto) {
-    return {
+    return anotar({
       enviada: false,
       abertas: 0,
       resolvidas: 0,
       motivo: "conferência incompleta nesta leitura — cobrança adiada",
-    };
+    });
   }
 
   /*
@@ -88,7 +117,7 @@ export async function cobrarNoGrupo(
    */
   const desde = config().COBRANCA_DESDE;
   if (desde && dia < desde) {
-    return { enviada: false, abertas: 0, resolvidas: 0, motivo: `dia anterior ao marco (${desde})` };
+    return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo: `dia anterior ao marco (${desde})` });
   }
 
   try {
@@ -107,14 +136,16 @@ export async function cobrarNoGrupo(
     const texto = montarCobranca(dia, m);
     const abertas = m.novas.length + m.antigas.length;
 
-    if (!texto) return { enviada: false, abertas: 0, resolvidas: 0, motivo: "nada a cobrar" };
+    if (!texto) {
+      return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo: "nada a cobrar" });
+    }
 
     await enviarTexto(grupo, texto);
     marcarCobradas(dia, [...m.novas, ...m.antigas].map((p) => p.pedido));
-    return { enviada: true, abertas, resolvidas: m.resolvidas.length };
+    return anotar({ enviada: true, abertas, resolvidas: m.resolvidas.length });
   } catch (e) {
     const motivo = e instanceof Error ? e.message : String(e);
     console.error("[cobranca] falhou:", motivo);
-    return { enviada: false, abertas: 0, resolvidas: 0, motivo };
+    return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo });
   }
 }
