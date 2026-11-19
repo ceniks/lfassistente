@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 const pasta = mkdtempSync(join(tmpdir(), "lf-cobranca-"));
 process.env.PENDENCIAS = join(pasta, "pendencias.json");
+process.env.COBRANCA_ADIADA = join(pasta, "adiada.json");
 afterEach(() => undefined);
 
 const { conciliar, marcarCobradas, emAberto, diasEntre } = await import(
@@ -173,5 +174,28 @@ describe("o que entra na cobrança", () => {
       manual: { vendas: [parcial("#4", 100)] },
     } as never;
     expect(pendenciasDoDia(d)).toHaveLength(1);
+  });
+});
+
+const { adiar, lerAdiada, limparAdiada } = await import("../src/cobranca/adiada.js");
+
+describe("dia adiado", () => {
+  it("anota o dia e conta as tentativas", () => {
+    limparAdiada();
+    adiar("2026-11-18", "conferência incompleta");
+    adiar("2026-11-18", "conferência incompleta");
+    const a = lerAdiada()!;
+    expect(a.dia).toBe("2026-11-18");
+    expect(a.tentativas).toBe(2);
+  });
+
+  it("dia novo recomeça a contagem", () => {
+    adiar("2026-11-19", "conferência incompleta");
+    expect(lerAdiada()!.tentativas).toBe(1);
+  });
+
+  it("limpar apaga o registro", () => {
+    limparAdiada();
+    expect(lerAdiada()).toBeNull();
   });
 });

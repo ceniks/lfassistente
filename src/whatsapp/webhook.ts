@@ -5,6 +5,7 @@ import { rotasDeRh } from '../rh/web.js';
 import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
 import { emAberto } from '../cobranca/pendencias.js';
 import { ultimaCobranca } from '../cobranca/index.js';
+import { lerAdiada } from '../cobranca/adiada.js';
 import {
   descartarLote,
   enviarLote,
@@ -114,6 +115,9 @@ export function criarApp() {
       // cobrar, conferência incompleta, ou envio que falhou. Aqui elas se
       // separam sem refazer a conferência do dia.
       ultimaCobranca: ultimaCobranca(),
+      // O dia que ficou para depois, se houver, com quantas vezes já foi
+      // retentado. Vazio aqui quer dizer que nenhum dia está pendurado.
+      cobrancaAdiada: lerAdiada(),
       // O que o atendimento ainda deve explicar, para conferir sem abrir o
       // grupo — e para saber que o livro não parou de ser atualizado.
       pendencias: emAberto().map((p) => ({

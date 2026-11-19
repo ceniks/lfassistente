@@ -17,6 +17,7 @@ import { enviarTexto } from "../whatsapp/evolution.js";
 import type { DadosRelatorio } from "../relatorio/dados.js";
 import { montarCobranca } from "./mensagem.js";
 import { conciliar, marcarCobradas, type Pendencia } from "./pendencias.js";
+import { adiar, lerAdiada, limparAdiada, MAX_TENTATIVAS } from "./adiada.js";
 import { responsaveisDePedidos } from "../data/shopify.js";
 
 export interface UltimaCobranca {
@@ -49,8 +50,19 @@ export function temGrupoDeAtendimento(): boolean {
 
 type Nova = Omit<Pendencia, "desde" | "cobradaEm">;
 
+/**
+ * O que a cobrança lê do relatório — e só isso.
+ *
+ * Declarado à parte para que o reteste de hora em hora possa montar esses
+ * quatro blocos sozinho, sem o boletim inteiro atrás.
+ */
+export type ConferenciaParaCobranca = Pick<
+  DadosRelatorio,
+  "contrapartida" | "manual" | "pix" | "comprovantes"
+>;
+
 /** O que a conferência de hoje considera em aberto, já no formato do livro. */
-export function pendenciasDoDia(d: DadosRelatorio): Nova[] {
+export function pendenciasDoDia(d: ConferenciaParaCobranca): Nova[] {
   const fora: Nova[] = [];
 
   for (const x of d.contrapartida.divergencias) {
@@ -100,7 +112,7 @@ export function pendenciasDoDia(d: DadosRelatorio): Nova[] {
  */
 export async function cobrarNoGrupo(
   dia: string,
-  d: DadosRelatorio,
+  d: ConferenciaParaCobranca,
 ): Promise<{ enviada: boolean; abertas: number; resolvidas: number; motivo?: string }> {
   const anotar = (r: { enviada: boolean; abertas: number; resolvidas: number; motivo?: string }) => {
     ultima = { dia, em: new Date().toISOString(), ...r };
@@ -111,6 +123,7 @@ export async function cobrarNoGrupo(
   if (!grupo) return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo: "sem grupo configurado" });
 
   if (d.contrapartida.extratoIncompleto) {
+    adiar(dia, "conferência incompleta");
     return anotar({
       enviada: false,
       abertas: 0,
@@ -149,15 +162,61 @@ export async function cobrarNoGrupo(
     const abertas = m.novas.length + m.antigas.length;
 
     if (!texto) {
+      limparAdiada();
       return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo: "nada a cobrar" });
     }
 
     await enviarTexto(grupo, texto);
     marcarCobradas(dia, [...m.novas, ...m.antigas].map((p) => p.pedido));
+    limparAdiada();
     return anotar({ enviada: true, abertas, resolvidas: m.resolvidas.length });
   } catch (e) {
     const motivo = e instanceof Error ? e.message : String(e);
     console.error("[cobranca] falhou:", motivo);
     return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo });
   }
+}
+
+/**
+ * O reteste de hora em hora.
+ *
+ * Só age quando há dia adiado, e para sozinho de três maneiras: o extrato
+ * responde e a cobrança sai; o dia vira e o boletim das 8h assume; ou as
+ * tentativas se esgotam, e aí o problema é do provedor, não de insistência.
+ *
+ * Devolve o que fez, para o log e para o `/diag`.
+ */
+export async function retomarCobrancaAdiada(
+  diaCorrente: string,
+): Promise<{ tentou: boolean; dia?: string; motivo?: string }> {
+  const a = lerAdiada();
+  if (!a) return { tentou: false };
+
+  /*
+   * `diaCorrente` é o dia que o boletim de hoje cobre — ontem, portanto. Se o
+   * adiado não é mais esse, o ciclo virou: o boletim da manhã seguinte já
+   * conferiu um dia novo, e insistir no velho só geraria cobrança atrasada
+   * sobre pedido que o atendimento já nem lembra.
+   */
+  if (a.dia !== diaCorrente) {
+    limparAdiada();
+    return { tentou: false, dia: a.dia, motivo: "dia já passou, descartado" };
+  }
+
+  if (a.tentativas >= MAX_TENTATIVAS) {
+    return { tentou: false, dia: a.dia, motivo: `desistiu após ${a.tentativas} tentativas` };
+  }
+
+  const { conferenciaParaCobranca } = await import("./conferencia.js");
+  const d = await conferenciaParaCobranca(a.dia).catch((e) => {
+    console.error("[cobranca] reteste falhou ao conferir:", e instanceof Error ? e.message : e);
+    return null;
+  });
+  if (!d) {
+    adiar(a.dia, "conferência falhou no reteste");
+    return { tentou: true, dia: a.dia, motivo: "conferência falhou" };
+  }
+
+  const r = await cobrarNoGrupo(a.dia, d);
+  return { tentou: true, dia: a.dia, motivo: r.enviada ? "enviada" : r.motivo };
 }

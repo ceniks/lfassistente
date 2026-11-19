@@ -280,6 +280,13 @@ Isso é deliberado: dar baixa à mão é o tipo de tarefa que não é feita, e u
 lista que só cresce vira ruído que todo mundo aprende a ignorar — o oposto do
 que a cobrança existe para fazer.
 
+Quando a conferência vem incompleta, o dia fica anotado em
+`dados/cobranca-adiada.json` e o reteste de hora em hora o retoma — até o
+extrato responder, o dia virar (aí o boletim seguinte assume) ou as 12
+tentativas acabarem. Antes disso, adiar era o mesmo que cancelar: em 16/11
+três pedidos sem explicação, R$ 1.049,74, passaram em branco por causa de uma
+leitura de extrato que falhou naquele minuto.
+
 Duas travas contra cobrar errado:
 
 - **Conferência incompleta não cobra.** Se o extrato não veio inteiro, metade

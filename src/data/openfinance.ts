@@ -35,7 +35,16 @@ async function chamar<T>(rota: string, corpo: unknown): Promise<T> {
     } catch (e) {
       ultimo = e;
       const msg = e instanceof Error ? e.message : String(e);
-      // Erro de credencial ou de rota não melhora esperando.
+      /*
+       * Erro de credencial ou de rota não melhora esperando — mas 429 sim:
+       * é limite de chamadas, e é exatamente o que acontece quando duas
+       * conferências rodam perto uma da outra. Tratá-lo como erro final
+       * apagava o extrato de um dia inteiro por causa de pressa.
+       */
+      if (/\b429\b/.test(msg)) {
+        await new Promise((ok) => setTimeout(ok, 5000 * tentativa));
+        continue;
+      }
       if (/40[0-4]/.test(msg)) throw e;
       if (tentativa < 3) await new Promise((ok) => setTimeout(ok, 2000 * tentativa));
     }
@@ -138,19 +147,31 @@ export async function entradasPix(de: string, ate: string): Promise<EntradaPix[]
    * tentativas com respiro no meio resolveram; o que sobrar de vazio é tratado
    * como extrato indisponível por quem chama, não como ausência de dinheiro.
    */
-  let r = { results: [] as Array<Record<string, unknown>> };
-  for (let tentativa = 1; tentativa <= 3; tentativa++) {
-    r = await chamar<{ results: Array<Record<string, unknown>> }>("transactions/list", {
-      account_id: conta.id,
-      from: de,
-      to: ate,
-      page_size: 500,
-    });
-    if ((r.results ?? []).length) break;
-    if (tentativa < 3) await new Promise((ok) => setTimeout(ok, 1500 * tentativa));
+  /*
+   * 200 por página, não 500 — e isso foi a causa de metade dos "extrato não
+   * veio".
+   *
+   * Pedindo 500 o provedor simplesmente não responde: estoura o teto de 60s
+   * da chamada e sobe como erro, que o bloco do Pix lê como extrato
+   * indisponível. Medido na mesma janela de 15 a 17/11, que tem 48
+   * lançamentos: com 500 dá timeout; com 200 responde em 4,7s, com 100 em
+   * 2,8s. Não era o banco fora do ar, era o tamanho do pedido.
+   */
+  const POR_PAGINA = 200;
+  const linhas: Array<Record<string, unknown>> = [];
+
+  for (let pagina = 1; pagina <= 50; pagina++) {
+    const r = await chamar<{ results?: Array<Record<string, unknown>>; total?: number }>(
+      "transactions/list",
+      { account_id: conta.id, from: de, to: ate, page: pagina, page_size: POR_PAGINA },
+    );
+    const lote = r.results ?? [];
+    linhas.push(...lote);
+    if (lote.length < POR_PAGINA) break;
+    if (typeof r.total === "number" && linhas.length >= r.total) break;
   }
 
-  return (r.results ?? [])
+  return linhas
     .filter((t) => String(t.operationType ?? "") === "PIX" && Number(t.amount) > 0)
     .map((t) => {
       /*

@@ -8,7 +8,7 @@ import { boletimTerminou, resumoComecou, resumoTerminou } from './digest/estado.
 import { gerarBoletim } from './relatorio/index.js';
 import { aquecerCacheDeReversas } from './data/retorno.js';
 import { avisarPorEmail } from './digest/alerta.js';
-import { cobrarNoGrupo } from './cobranca/index.js';
+import { cobrarNoGrupo, retomarCobrancaAdiada } from './cobranca/index.js';
 
 // Valida o conjunto obrigatório antes de qualquer coisa subir.
 const c = exigirConfigCompleta();
@@ -136,6 +136,29 @@ cron.schedule(
 
 
 cron.schedule(c.VIGIA_CRON, () => void verificarContas(), { timezone: c.TZ });
+
+/* ------------------------------------------------------------------ *
+ * Reteste da cobrança adiada
+ * ------------------------------------------------------------------ *
+ *
+ * De hora em hora, e quase sempre sem fazer nada: só age quando a cobrança
+ * das 8h ficou para depois porque a conferência veio incompleta.
+ *
+ * Até existir isto, adiar era o mesmo que cancelar — ninguém voltava para
+ * tentar. Em 16/11 três pedidos sem explicação, R$ 1.049,74, passaram em
+ * branco por causa de uma leitura de extrato que falhou naquele minuto.
+ */
+cron.schedule(
+  c.VIGIA_CRON,
+  async () => {
+    const r = await retomarCobrancaAdiada(ontem()).catch((e) => {
+      console.error('[cobranca] reteste falhou:', e);
+      return null;
+    });
+    if (r?.tentou) console.log(`[cobranca] reteste de ${r.dia}: ${r.motivo}`);
+  },
+  { timezone: c.TZ },
+);
 
 // Uma checagem no boot: se a conta já estiver com problema quando o serviço
 // subir, você fica sabendo agora, não na virada da hora.
