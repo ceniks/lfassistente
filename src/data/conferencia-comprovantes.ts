@@ -179,8 +179,22 @@ async function procurar(
   }
 
   if (c.trilho === "pagarme" && temPagarme()) {
+    const alvo = c.codigo?.toUpperCase();
     for (const dia of emVolta(c.dia)) {
-      const achado = (await pedidosDoDia(dia).catch(() => []))
+      const doDia = await pedidosDoDia(dia).catch(() => []);
+      // Código primeiro: o recibo da Pagar.me traz o `pl_`/`ch_` da cobrança,
+      // e casar por ele é prova, não coincidência de valor.
+      const porCodigo = alvo
+        ? doDia.find(
+            (p) =>
+              p.pago &&
+              !usados.has(p.id) &&
+              (p.codigo?.toUpperCase() === alvo || p.chargeId?.toUpperCase() === alvo),
+          )
+        : undefined;
+      const achado =
+        porCodigo ??
+        doDia
         .filter((p) => p.pago && perto(p.valor, c.valor))
         .find((p) => !usados.has(p.id));
       if (achado) {
@@ -230,7 +244,7 @@ export async function conferirComprovantes(
   for (const v of pendentes) {
     const lidos: Comprovante[] = [];
     for (const a of anexos.get(v.pedido) ?? []) {
-      const c = await lerAnexo(a.arquivo, a.url);
+      const c = await lerAnexo(a.arquivo, a.url, dia);
       if (c) lidos.push(c);
     }
     if (lidos.length) lidosPorPedido.set(v.pedido, lidos);

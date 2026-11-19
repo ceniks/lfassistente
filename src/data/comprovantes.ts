@@ -80,32 +80,79 @@ const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "o
  * "01 out. 2026, 17:59:59". Sem o segundo, todo print do app do Itaú virava
  * documento ilegível e o pedido voltava para a lista de não encontrados.
  */
-function dataDe(texto: string): { dia: string; hora: string } | null {
+function dataDe(
+  texto: string,
+  referencia?: string,
+): { dia: string; hora: string } | null {
+  // "22/09/2026 às 13:49:27" e também "14/11/2026" seco — recibo de link de
+  // pagamento não traz hora, e exigi-la descartava o documento inteiro.
   const barra = texto.match(
-    /(\d{2})\/(\d{2})\/(\d{4})\s*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/,
+    /(\d{2})\/(\d{2})\/(\d{4})(?:[,\s]*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?))?/,
   );
   if (barra) {
     const [, dd, mm, aaaa, hora] = barra;
     return { dia: `${aaaa}-${mm}-${dd}`, hora: completar(hora) };
   }
 
+  // "01 out. 2026, 17:59:59" — Itaú.
   const extenso = texto.match(
-    /(\d{1,2})\s*(?:de\s*)?([a-zç]{3,})\.?\s*(?:de\s*)?(\d{4})[,\s]*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/i,
+    /(\d{1,2})\s*(?:de\s*)?([a-zç]{3,})\.?\s*(?:de\s*)?(\d{4})(?:[,\s]*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?))?/i,
   );
   if (extenso) {
     const [, dd, mes, aaaa, hora] = extenso;
     const i = MESES.indexOf(mes.slice(0, 3).toLowerCase());
+    if (i >= 0) return montar(aaaa, i + 1, dd, hora);
+  }
+
+  /*
+   * "segunda-feira, 16 de nov. 15:20" — print do app do banco, sem ano.
+   *
+   * O ano não está no documento porque, para quem olha o celular, ele é
+   * óbvio. Aqui o óbvio vem do dia que está sendo conferido; sem ele, o
+   * comprovante era descartado e o pedido virava cobrança indevida.
+   */
+  const semAno = texto.match(
+    /(\d{1,2})\s*de\s*([a-zç]{3,})\.?[,\s]*(?:às|as)?\s*(\d{2}:\d{2}(?::\d{2})?)/i,
+  );
+  if (semAno && referencia) {
+    const [, dd, mes, hora] = semAno;
+    const i = MESES.indexOf(mes.slice(0, 3).toLowerCase());
     if (i >= 0) {
-      return {
-        dia: `${aaaa}-${String(i + 1).padStart(2, "0")}-${dd.padStart(2, "0")}`,
-        hora: completar(hora),
-      };
+      const ano = Number(referencia.slice(0, 4));
+      const tentativa = montar(String(ano), i + 1, dd, hora)!;
+      /*
+       * Comprovante de dezembro lido em janeiro cairia no ano errado. Se a
+       * data adivinhada ficou bem à frente da referência, é do ano anterior.
+       */
+      return tentativa.dia > diasAdiante(referencia, 45)
+        ? montar(String(ano - 1), i + 1, dd, hora)
+        : tentativa;
     }
   }
+
   return null;
 }
 
-const completar = (hora: string) => (hora.length === 5 ? `${hora}:00` : hora);
+function montar(
+  aaaa: string,
+  mes: number,
+  dd: string,
+  hora?: string,
+): { dia: string; hora: string } {
+  return {
+    dia: `${aaaa}-${String(mes).padStart(2, "0")}-${dd.padStart(2, "0")}`,
+    hora: completar(hora),
+  };
+}
+
+function diasAdiante(dia: string, n: number): string {
+  const d = new Date(`${dia}T12:00:00-03:00`);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+const completar = (hora?: string) =>
+  !hora ? "00:00:00" : hora.length === 5 ? `${hora}:00` : hora;
 
 /** "1.289,09" -> 1289.09 */
 function numeroBr(txt: string): number {
@@ -126,6 +173,11 @@ function trilhoDe(texto: string): { trilho: Trilho; instituicao: string } {
   if (/MERCADO\s*PAGO/.test(t)) return { trilho: "mercadopago", instituicao: "Mercado Pago" };
   if (/PAGSEGURO|PAGBANK/.test(t)) return { trilho: "pagbank", instituicao: "PagBank" };
   if (/PAGAR\.?\s?ME/.test(t)) return { trilho: "pagarme", instituicao: "Pagar.me" };
+  // `pl_`, `ch_` e `or_` são os prefixos de link, cobrança e pedido na
+  // Pagar.me. Onde eles aparecem, o adquirente está dito sem ser nomeado.
+  if (/\b(?:PL|CH|OR)_[A-Z0-9]{10,}\b/.test(t)) {
+    return { trilho: "pagarme", instituicao: "Pagar.me" };
+  }
 
   /*
    * Recibo de link de pagamento não nomeia o adquirente em lugar nenhum — o
@@ -150,14 +202,28 @@ function trilhoDe(texto: string): { trilho: Trilho; instituicao: string } {
  * dos dois devolve `null` — comprovante ilegível não deve virar casamento
  * inventado.
  */
-export function lerComprovante(arquivo: string, texto: string): Comprovante | null {
+export function lerComprovante(
+  arquivo: string,
+  texto: string,
+  referencia?: string,
+): Comprovante | null {
   const valores = [...texto.matchAll(/R\$\s*([\d.]+,\d{2})/g)].map((m) => numeroBr(m[1]));
-  const data = dataDe(texto);
+  const data = dataDe(texto, referencia);
   if (!valores.length || !data) return null;
 
   const { dia, hora } = data;
+  /*
+   * O identificador do pagamento, onde quer que ele esteja.
+   *
+   * A Pagar.me escreve "Código da cobrança pl_…" e ainda batiza o arquivo com
+   * o id da cobrança (`ch_dRyjzYpHL5hNOrbM_authorization_1.pdf`). Qualquer um
+   * dos dois é prova direta, bem melhor que coincidência de valor.
+   */
   const codigo =
-    texto.match(/C[óo]digo da transa[çc][ãa]o:?\s*([A-Za-z0-9-]{8,})/)?.[1] ?? null;
+    texto.match(/C[óo]digo da (?:transa[çc][ãa]o|cobran[çc]a):?\s*([A-Za-z0-9_-]{8,})/)?.[1] ??
+    texto.match(/\b((?:pl_|ch_|or_)[A-Za-z0-9]{10,})\b/)?.[1] ??
+    arquivo.match(/^((?:ch|pl|or)_[A-Za-z0-9]{10,})/)?.[1] ??
+    null;
 
   return {
     arquivo,
@@ -189,6 +255,7 @@ const TIPO_DE_IMAGEM: Record<string, "image/jpeg" | "image/png" | "image/webp" |
 export async function lerAnexo(
   arquivo: string,
   url: string,
+  referencia?: string,
 ): Promise<Comprovante | null> {
   const extensao = arquivo.split(".").pop()?.toLowerCase() ?? "";
   const imagem = TIPO_DE_IMAGEM[extensao];
@@ -202,7 +269,7 @@ export async function lerAnexo(
     const texto = imagem
       ? await transcreverImagem(bytes, imagem)
       : await textoDePdf(bytes);
-    return lerComprovante(arquivo, texto);
+    return lerComprovante(arquivo, texto, referencia);
   } catch {
     return null;
   }
