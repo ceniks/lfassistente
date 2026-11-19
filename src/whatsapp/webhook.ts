@@ -6,6 +6,7 @@ import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } fro
 import { emAberto } from '../cobranca/pendencias.js';
 import { ultimaCobranca } from '../cobranca/index.js';
 import { lerAdiada } from '../cobranca/adiada.js';
+import { lerBoletimAdiado } from '../digest/adiado.js';
 import {
   descartarLote,
   enviarLote,
@@ -118,6 +119,8 @@ export function criarApp() {
       // O dia que ficou para depois, se houver, com quantas vezes já foi
       // retentado. Vazio aqui quer dizer que nenhum dia está pendurado.
       cobrancaAdiada: lerAdiada(),
+      // O boletim que não saiu e está sendo retentado de hora em hora.
+      boletimAdiado: lerBoletimAdiado(),
       // O que o atendimento ainda deve explicar, para conferir sem abrir o
       // grupo — e para saber que o livro não parou de ser atualizado.
       pendencias: emAberto().map((p) => ({

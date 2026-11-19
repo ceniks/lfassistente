@@ -173,6 +173,10 @@ export async function cobrarNoGrupo(
   } catch (e) {
     const motivo = e instanceof Error ? e.message : String(e);
     console.error("[cobranca] falhou:", motivo);
+    // Envio que estourou também fica para depois: "não consegui mandar" e
+    // "não havia o que mandar" produzem o mesmo silêncio no grupo, e só um
+    // dos dois merece uma segunda tentativa.
+    adiar(dia, motivo);
     return anotar({ enviada: false, abertas: 0, resolvidas: 0, motivo });
   }
 }
