@@ -66,11 +66,23 @@ export function pendenciasDoDia(d: DadosRelatorio): Nova[] {
    * Parciais vêm do bloco de pagos à mão, e só os que ainda devem algo. O
    * frete que ficou fora do link é a causa mais comum — a nota do próprio
    * pedido já diz isso, e repetir aqui poupa a ida ao boletim.
+   *
+   * Mas "parcial" é o veredito da Pagar.me **antes** do extrato e dos
+   * comprovantes. O #146356 de 18/11 é o caso: R$ 1.250 no link e R$ 210,25
+   * por Pix, declarado "pagar.me + pix". A busca por cobrança achou só os
+   * R$ 1.250 e o marcou parcial; o extrato achou o Pix e o comprovante
+   * fechou o pedido. Cobrar por essa sobra seria acusar alguém de um buraco
+   * que a própria conferência já tinha tapado duas etapas depois.
    */
+  const cobertos = new Set<string>([
+    ...(d.pix?.casados ?? []).map((l) => l.pedido),
+    ...(d.comprovantes?.pedidos ?? []).filter((p) => p.fecha).map((p) => p.pedido),
+  ]);
+
   const jaListados = new Set(fora.map((x) => x.pedido));
   for (const v of d.manual?.vendas ?? []) {
     if (v.situacao !== "parcial" || v.semRastro <= 0.01) continue;
-    if (jaListados.has(v.pedido)) continue;
+    if (jaListados.has(v.pedido) || cobertos.has(v.pedido)) continue;
     fora.push({
       pedido: v.pedido,
       tipo: "parcial",

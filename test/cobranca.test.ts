@@ -113,3 +113,65 @@ describe("mensagem da cobrança", () => {
 });
 
 rmSync(pasta, { recursive: true, force: true });
+
+const { pendenciasDoDia } = await import("../src/cobranca/index.js");
+
+describe("o que entra na cobrança", () => {
+  const base = {
+    contrapartida: { divergencias: [] },
+    manual: { vendas: [] },
+    pix: null,
+    comprovantes: null,
+  } as never;
+
+  const parcial = (pedido: string, semRastro: number) => ({
+    pedido,
+    situacao: "parcial" as const,
+    semRastro,
+    valor: 1000,
+    metodo: "pagar.me",
+    nota: undefined,
+  });
+
+  it("parcial sem cobertura é cobrada", () => {
+    const d = { ...base, manual: { vendas: [parcial("#1", 210.25)] } } as never;
+    expect(pendenciasDoDia(d).map((p) => p.pedido)).toEqual(["#1"]);
+  });
+
+  it("parcial que o extrato casou não é cobrada", () => {
+    // O #146356: R$ 1.250 no link e R$ 210,25 por Pix, os dois encontrados.
+    const d = {
+      ...base,
+      manual: { vendas: [parcial("#146356", 210.25)] },
+      pix: { casados: [{ pedido: "#146356" }], semContrapartida: [] },
+    } as never;
+    expect(pendenciasDoDia(d)).toHaveLength(0);
+  });
+
+  it("parcial que o comprovante fechou não é cobrada", () => {
+    const d = {
+      ...base,
+      manual: { vendas: [parcial("#2", 50)] },
+      comprovantes: { pedidos: [{ pedido: "#2", fecha: true }] },
+    } as never;
+    expect(pendenciasDoDia(d)).toHaveLength(0);
+  });
+
+  it("comprovante que não fechou não protege o pedido", () => {
+    const d = {
+      ...base,
+      manual: { vendas: [parcial("#3", 50)] },
+      comprovantes: { pedidos: [{ pedido: "#3", fecha: false }] },
+    } as never;
+    expect(pendenciasDoDia(d)).toHaveLength(1);
+  });
+
+  it("não duplica o pedido que já está em sem-contrapartida", () => {
+    const d = {
+      ...base,
+      contrapartida: { divergencias: [{ pedido: "#4", valor: 100, motivo: "sem cobrança" }] },
+      manual: { vendas: [parcial("#4", 100)] },
+    } as never;
+    expect(pendenciasDoDia(d)).toHaveLength(1);
+  });
+});
