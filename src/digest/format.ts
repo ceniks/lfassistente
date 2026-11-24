@@ -1,5 +1,9 @@
 import { temGoogleAds, ultimaFalhaGoogle } from "../data/google.js";
-import type { NovosVsRecorrentes, ResumoVendas, Trafego } from "../data/shopify.js";
+import type {
+  NovosVsRecorrentes,
+  ResumoVendas,
+  Trafego,
+} from "../data/shopify.js";
 import { reposicao, type Cobertura } from "../data/cobertura.js";
 import type { Patrimonio } from "../data/patrimonio.js";
 import type { MediaDaHora } from "../data/shopify.js";
@@ -93,6 +97,8 @@ export interface DadosResumo {
   google?: { valorPago: number; receita: number; roas: number } | null;
   fluxos: FluxoTemplate[];
   producao?: Producao | null;
+  /** Blocos que não puderam ser conferidos nesta montagem. */
+  falhas?: Array<{ bloco: string; motivo: string }>;
   atendimento?: Atendimento | null;
   reversas?: Reversas | null;
   estornos?: Conciliacao | null;
@@ -105,10 +111,31 @@ export interface DadosResumo {
   leitura?: string;
 }
 
+/**
+ * O aviso de leitura falha, que vem antes dos números.
+ *
+ * Quem lê no semáforo lê as primeiras linhas. Um bloco que não pôde ser
+ * contado aparece zerado adiante, e zero parece notícia — foi assim que o
+ * check-in anunciou nenhuma peça em produção com 9.092 na oficina.
+ */
+export function blocoDeFalhas(
+  falhas?: Array<{ bloco: string; motivo: string }>,
+): string | null {
+  if (!falhas?.length) return null;
+  return (
+    "\n🔴 NÃO FOI POSSÍVEL CONFERIR\n" +
+    falhas.map((f) => `• ${f.bloco}`).join("\n") +
+    "\nOnde esses blocos aparecerem zerados, o número é falta de leitura, não do dia."
+  );
+}
+
 export function montarResumo(d: DadosResumo): string {
   const b: string[] = [];
 
   b.push(`☀️ L&F · ${dataPorExtenso(d.dia)}`);
+
+  const aviso = blocoDeFalhas(d.falhas);
+  if (aviso) b.push(aviso);
 
   // --- Faturamento ---
   const v = d.vendas;
@@ -176,7 +203,9 @@ export function montarResumo(d: DadosResumo): string {
     desc.push(
       "Cupons mais usados: " +
         v.cuponsMaisUsados
-          .map((c) => `${c.codigo} ${numero(c.pedidos)}x (${dinheiro(c.valor)})`)
+          .map(
+            (c) => `${c.codigo} ${numero(c.pedidos)}x (${dinheiro(c.valor)})`,
+          )
           .join(" · "),
     );
   }
@@ -237,12 +266,16 @@ export function montarResumo(d: DadosResumo): string {
     mg.push(
       `Custo das peças: ${dinheiro(m.cmv)} (${pct2(m.cmv)} da receita, ${numero(m.pecasQueSairam)} peças)`,
     );
-    mg.push(`Margem bruta: ${dinheiro(m.margemBruta)} · ${pct2(m.margemBruta)}`);
+    mg.push(
+      `Margem bruta: ${dinheiro(m.margemBruta)} · ${pct2(m.margemBruta)}`,
+    );
     mg.push(
       `Menos mídia ${dinheiro(m.midia)}` +
         (m.taxaDePagamento > 0 ? `, taxa ${dinheiro(m.taxaDePagamento)}` : "") +
         (m.custoDeFrete > 0 ? `, frete ${dinheiro(m.custoDeFrete)}` : "") +
-        (m.taxaDaPlataforma > 0 ? `, plataforma ${dinheiro(m.taxaDaPlataforma)}` : ""),
+        (m.taxaDaPlataforma > 0
+          ? `, plataforma ${dinheiro(m.taxaDaPlataforma)}`
+          : ""),
     );
     mg.push(
       `Margem de contribuição: ${dinheiro(m.margemDeContribuicao)} · ${pct2(m.margemDeContribuicao)}`,
@@ -265,8 +298,14 @@ export function montarResumo(d: DadosResumo): string {
       r.push(
         `${String(h.hora).padStart(2, "0")}h: ${dinheiro(h.receita)}` +
           (totalDoDia > 0 ? ` (${pct(fracao)} do dia` : "") +
-          (m && m.fracaoDoDia > 0 ? `, normal ${pct(m.fracaoDoDia)})` : totalDoDia > 0 ? ")" : "") +
-          (m && m.receita > 0 ? ` · ${variacao(h.receita, m.receita)} vs média 7d` : ""),
+          (m && m.fracaoDoDia > 0
+            ? `, normal ${pct(m.fracaoDoDia)})`
+            : totalDoDia > 0
+              ? ")"
+              : "") +
+          (m && m.receita > 0
+            ? ` · ${variacao(h.receita, m.receita)} vs média 7d`
+            : ""),
       );
     }
     b.push(r.join("\n"));
@@ -280,7 +319,9 @@ export function montarResumo(d: DadosResumo): string {
     const est = ["", "🧵 ESTOQUE HOJE"];
     est.push(
       `No site: ${numero(p.loja.pecas)} peças · ${dinheiro(p.loja.valorDeVenda)} de venda` +
-        (p.loja.valorDeCusto !== null ? ` · ${dinheiro(p.loja.valorDeCusto)} de custo` : ""),
+        (p.loja.valorDeCusto !== null
+          ? ` · ${dinheiro(p.loja.valorDeCusto)} de custo`
+          : ""),
     );
     est.push(`Em produção: ${numero(p.emProducao.pecas)} peças`);
     est.push(
@@ -299,7 +340,9 @@ export function montarResumo(d: DadosResumo): string {
     // A pior das duas leituras manda: a de 15 dias dá a base, a de 7 pega quem
     // acelerou nesta semana e ainda aparece confortável na média longa.
     const pior = (c: Cobertura) => {
-      const vs = [c.diasDeCobertura, c.diasDeCobertura7d].filter((x): x is number => x !== null);
+      const vs = [c.diasDeCobertura, c.diasDeCobertura7d].filter(
+        (x): x is number => x !== null,
+      );
       return vs.length ? Math.min(...vs) : null;
     };
 
@@ -351,9 +394,7 @@ export function montarResumo(d: DadosResumo): string {
     mid.push(
       `CPA ${dinheiro(m.cpa)} · CPM ${dinheiroExato(m.cpm)} · CPC link ${dinheiroExato(m.cpc)} (líquidos)`,
     );
-    mid.push(
-      `CTR link ${pct(m.ctr, 2)} · só campanhas de venda`,
-    );
+    mid.push(`CTR link ${pct(m.ctr, 2)} · só campanhas de venda`);
 
     if (d.google) {
       // Sem imposto, por definição: o valor da API do Google já é o cobrado.
@@ -439,7 +480,9 @@ export function montarResumo(d: DadosResumo): string {
         );
       }
       if (c.noAtendimento.compraramDepois > 0) {
-        fl.push(`${numero(c.noAtendimento.compraramDepois)} compraram depois do disparo`);
+        fl.push(
+          `${numero(c.noAtendimento.compraramDepois)} compraram depois do disparo`,
+        );
       }
     }
 
@@ -454,7 +497,9 @@ export function montarResumo(d: DadosResumo): string {
         fl.push(
           `  ${r.nome}: ${numero(r.enviadas)} enviadas` +
             (r.falhas > 0 ? ` · ${numero(r.falhas)} falhas` : "") +
-            (r.conversoes > 0 ? ` · ${numero(r.conversoes)} compras (${dinheiro(r.receita)})` : ""),
+            (r.conversoes > 0
+              ? ` · ${numero(r.conversoes)} compras (${dinheiro(r.receita)})`
+              : ""),
         );
       }
     }
@@ -473,7 +518,9 @@ export function montarResumo(d: DadosResumo): string {
     tr.push(
       `${numero(t.abertas)} abertas — ${t.aberturasPorTipo.troca} troca · ` +
         `${t.aberturasPorTipo.estorno} estorno` +
-        (t.aberturasPorTipo.sem_reembolso ? ` · ${t.aberturasPorTipo.sem_reembolso} sem reembolso` : ""),
+        (t.aberturasPorTipo.sem_reembolso
+          ? ` · ${t.aberturasPorTipo.sem_reembolso} sem reembolso`
+          : ""),
     );
     tr.push(
       `${numero(t.concluidas)} ${t.concluidas === 1 ? "concluída" : "concluídas"} · ${numero(t.canceladas)} canceladas` +
@@ -482,7 +529,9 @@ export function montarResumo(d: DadosResumo): string {
           : ""),
     );
     if (t.valorEstorno > 0 || t.valorRetido > 0) {
-      tr.push(`Estornado ${dinheiro(t.valorEstorno)} · retido em crédito ${dinheiro(t.valorRetido)}`);
+      tr.push(
+        `Estornado ${dinheiro(t.valorEstorno)} · retido em crédito ${dinheiro(t.valorRetido)}`,
+      );
     }
     if (t.motivos.length) {
       tr.push(`Motivo nº1: ${t.motivos[0].motivo} (${t.motivos[0].total})`);
@@ -491,10 +540,13 @@ export function montarResumo(d: DadosResumo): string {
     if (t.envelhecidas > 0) {
       tr.push(
         `⚠️ ${numero(t.envelhecidas)} abertas há +30 dias` +
-          (t.gargalo ? ` · maior fila: ${t.gargalo.status} (${numero(t.gargalo.total)})` : ""),
+          (t.gargalo
+            ? ` · maior fila: ${t.gargalo.status} (${numero(t.gargalo.total)})`
+            : ""),
       );
     }
-    if (t.travadas > 0) tr.push(`${numero(t.travadas)} esperando a cliente postar há +7 dias`);
+    if (t.travadas > 0)
+      tr.push(`${numero(t.travadas)} esperando a cliente postar há +7 dias`);
 
     // O confronto pedido a pedido é o ponto: "finalizada" no Troquecommerce não
     // quer dizer que o dinheiro saiu, e comparar só os totais confunde
@@ -503,12 +555,17 @@ export function montarResumo(d: DadosResumo): string {
       const c = d.estornos;
       tr.push(
         `Estorno Shopify ${dinheiro(c.shopify.valor)}` +
-          (c.shopify.pendente > 0 ? ` (+${dinheiro(c.shopify.pendente)} pendente)` : "") +
+          (c.shopify.pendente > 0
+            ? ` (+${dinheiro(c.shopify.pendente)} pendente)`
+            : "") +
           ` · Troquecommerce ${dinheiro(c.troque.valor)}`,
       );
 
       const listar = (xs: Array<{ pedido: string }>) => {
-        const nomes = xs.slice(0, 4).map((x) => x.pedido).join(", ");
+        const nomes = xs
+          .slice(0, 4)
+          .map((x) => x.pedido)
+          .join(", ");
         return xs.length > 4 ? `${nomes} +${xs.length - 4}` : nomes;
       };
 
@@ -516,7 +573,9 @@ export function montarResumo(d: DadosResumo): string {
         !c.soShopify.length && !c.soTroque.length && !c.valorDiferente.length;
 
       if (limpo) {
-        tr.push(`✅ Os dois lados batem — ${numero(c.batem)} pedidos conferidos`);
+        tr.push(
+          `✅ Os dois lados batem — ${numero(c.batem)} pedidos conferidos`,
+        );
       }
       // Sem isso, "batem" ao lado de totais diferentes parece erro do relatório.
       if (c.emOutroDia.length) {
@@ -527,8 +586,11 @@ export function montarResumo(d: DadosResumo): string {
             return `${x.pedido} (Shopify ${dd}/${m}, ${Math.abs(x.dias)}d ${x.dias > 0 ? "antes" : "depois"})`;
           })
           .join(", ");
-        const resto = c.emOutroDia.length > 4 ? ` +${c.emOutroDia.length - 4}` : "";
-        tr.push(`↔️ ${numero(c.emOutroDia.length)} em dias diferentes: ${casos}${resto}`);
+        const resto =
+          c.emOutroDia.length > 4 ? ` +${c.emOutroDia.length - 4}` : "";
+        tr.push(
+          `↔️ ${numero(c.emOutroDia.length)} em dias diferentes: ${casos}${resto}`,
+        );
       }
       if (!limpo) {
         if (c.soShopify.length) {

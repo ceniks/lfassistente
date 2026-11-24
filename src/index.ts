@@ -100,6 +100,25 @@ async function montarEEnviarBoletim(dia: string): Promise<boolean> {
      */
     limparBoletimAdiado();
 
+    /*
+     * O que não deu para conferir vai numa mensagem à parte.
+     *
+     * No PDF já aparece em vermelho no topo, mas o PDF é anexo e às vezes só
+     * é aberto à tarde. Bloco que falhou vira número zerado, e número zerado
+     * tem cara de notícia — a de produção parada, por exemplo. Vale
+     * interromper.
+     */
+    const falhas = b.dados.falhas ?? [];
+    if (falhas.length) {
+      const texto =
+        `⚠️ Boletim de ${dia.split("-").reverse().join("/")}: ` +
+        `${falhas.length} bloco(s) não puderam ser conferidos.\n\n` +
+        falhas.map((f) => `• ${f.bloco}: ${f.motivo}`).join("\n") +
+        "\n\nOnde esses blocos aparecerem zerados ou vazios no relatório, o número não é " +
+        "do negócio — é falta de leitura.";
+      await enviarTextoAosDonos(texto).catch(() => undefined);
+    }
+
     const c = await cobrarNoGrupo(dia, b.dados);
     console.log(
       `[cobranca] ${c.enviada ? `enviada: ${c.abertas} em aberto, ${c.resolvidas} resolvida(s)` : `não enviada (${c.motivo})`}`,

@@ -1,5 +1,7 @@
-import { config } from '../config.js';
-import { chamarFerramenta } from './mcp-client.js';
+import { config } from "../config.js";
+import { registrarFalha } from "../relatorio/falhas.js";
+import { chamarFerramenta } from "./mcp-client.js";
+import { lerCortes } from "./cortes-texto.js";
 
 export interface Producao {
   naOficina: number;
@@ -14,7 +16,7 @@ export interface Producao {
 function servidor() {
   const c = config();
   if (!c.CORTEPRO_MCP_URL) return null;
-  return { nome: 'cortepro', url: c.CORTEPRO_MCP_URL, token: c.CORTEPRO_TOKEN };
+  return { nome: "cortepro", url: c.CORTEPRO_MCP_URL, token: c.CORTEPRO_TOKEN };
 }
 
 /**
@@ -39,37 +41,49 @@ export async function producaoAtual(): Promise<Producao | null> {
   const srv = servidor();
   if (!srv) return null;
 
-  const texto = await chamarFerramenta(srv, 'resumo_producao');
+  const texto = await chamarFerramenta(srv, "resumo_producao");
 
   const etapa = (nome: string) => {
     const m = texto.match(
-      new RegExp(`${nome}:\\s*(\\d+)\\s*corte\\(s\\),\\s*(\\d+)\\s*peças`, 'i'),
+      new RegExp(`${nome}:\\s*(\\d+)\\s*corte\\(s\\),\\s*(\\d+)\\s*peças`, "i"),
     );
     return { cortes: Number(m?.[1] ?? 0), pecas: Number(m?.[2] ?? 0) };
   };
 
-  const oficina = etapa('Na oficina');
-  const galpao = etapa('No galpão');
+  const oficina = etapa("Na oficina");
+  const galpao = etapa("No galpão");
 
-  const atrasados = Number(texto.match(/Atrasados na oficina \((\d+)\)/i)?.[1] ?? 0);
+  const atrasados = Number(
+    texto.match(/Atrasados na oficina \((\d+)\)/i)?.[1] ?? 0,
+  );
 
   // Cada linha de atraso: "• 442 — Colete zurique ref:101 (retorno previsto 16/08/2026)"
-  const linhas = [...texto.matchAll(/•\s*(\d+)\s*—\s*(.+?)\s*\(retorno previsto (\d{2}\/\d{2}\/\d{4})\)/g)];
+  const linhas = [
+    ...texto.matchAll(
+      /•\s*(\d+)\s*—\s*(.+?)\s*\(retorno previsto (\d{2}\/\d{2}\/\d{4})\)/g,
+    ),
+  ];
 
   let maisCritico: string | undefined;
   let diasDeAtraso: number | undefined;
 
   if (linhas.length) {
     const comData = linhas.map((m) => {
-      const [d, mes, ano] = m[3].split('/').map(Number);
-      return { descricao: m[2], quando: new Date(ano, mes - 1, d), texto: m[3] };
+      const [d, mes, ano] = m[3].split("/").map(Number);
+      return {
+        descricao: m[2],
+        quando: new Date(ano, mes - 1, d),
+        texto: m[3],
+      };
     });
 
     comData.sort((a, b) => a.quando.getTime() - b.quando.getTime());
     const pior = comData[0];
 
     maisCritico = `${pior.descricao} (previsão era ${pior.texto})`;
-    diasDeAtraso = Math.floor((Date.now() - pior.quando.getTime()) / 86_400_000);
+    diasDeAtraso = Math.floor(
+      (Date.now() - pior.quando.getTime()) / 86_400_000,
+    );
   }
 
   return {
@@ -83,10 +97,13 @@ export async function producaoAtual(): Promise<Producao | null> {
 }
 
 /** Texto cru do estoque de tecidos, para quando o Luis perguntar direto. */
-export async function estoqueTecidos(tecido?: string, cor?: string): Promise<string | null> {
+export async function estoqueTecidos(
+  tecido?: string,
+  cor?: string,
+): Promise<string | null> {
   const srv = servidor();
   if (!srv) return null;
-  return chamarFerramenta(srv, 'estoque_tecidos', {
+  return chamarFerramenta(srv, "estoque_tecidos", {
     tecido: tecido ?? null,
     cor: cor ?? null,
   });
@@ -118,7 +135,7 @@ export interface CorteAberto {
  * `interessa` limita a conferência aos produtos que o relatório vai mostrar:
  * cada corte do galpão custa uma chamada extra ao Corte Pro.
  */
-const ETAPAS_ANTES_DO_GALPAO = ['em_corte', 'na_oficina', 'caseado'] as const;
+const ETAPAS_ANTES_DO_GALPAO = ["em_corte", "na_oficina", "caseado"] as const;
 
 /**
  * Antes disto o campo "subiu no site" não era preenchido — o controle começou
@@ -127,41 +144,47 @@ const ETAPAS_ANTES_DO_GALPAO = ['em_corte', 'na_oficina', 'caseado'] as const;
  * como reposição inflaria o número com peça que já está na Shopify há meses,
  * então corte iniciado antes desta data fica de fora.
  */
-const INICIO_DO_CONTROLE = '2026-03-30';
+const INICIO_DO_CONTROLE = "2026-03-30";
 
 /** Datas do Corte Pro vêm em dd/mm/aaaa; comparar em aaaa-mm-dd é o que ordena. */
 function emIso(br: string): string {
-  const [d, m, a] = br.split('/');
+  const [d, m, a] = br.split("/");
   return `${a}-${m}-${d}`;
 }
 
-// "• CRT-027 — Casaco  Londres ref:95 (Casaco) | No galpão | 826 pç | resp. Maria | início 22/05/2026 | saiu da oficina 11/08/2026"
-const LINHA_DE_CORTE =
-  /•\s*([\w-]+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})(?:.*?saiu da oficina\s*(\d{2}\/\d{2}\/\d{4}))?/g;
-
 type Servidor = { nome: string; url: string; token?: string };
 
-async function cortesDaEtapa(srv: Servidor, status: string): Promise<CorteAberto[]> {
+async function cortesDaEtapa(
+  srv: Servidor,
+  status: string,
+): Promise<CorteAberto[]> {
   let texto: string;
   try {
-    texto = await chamarFerramenta(srv, 'listar_cortes', { status, limite: 200 });
+    texto = await chamarFerramenta(srv, "listar_cortes", {
+      status,
+      limite: 200,
+    });
   } catch {
     return [];
   }
 
-  const saida: CorteAberto[] = [];
-  for (const m of texto.matchAll(LINHA_DE_CORTE)) {
-    saida.push({
-      codigo: m[1],
-      produto: m[2].trim(),
-      status: m[3].trim(),
-      pecas: Number(m[4]),
-      inicio: m[5],
-      prontaNoGalpao: status === 'no_galpao',
-      saiuDaOficina: m[6],
-    });
+  try {
+    return lerCortes(texto).map((c) => ({
+      codigo: c.codigo,
+      produto: c.produto,
+      status: c.status,
+      pecas: c.pecas,
+      inicio: c.inicio,
+      prontaNoGalpao: status === "no_galpao",
+      saiuDaOficina: c.saiuDaOficina,
+    }));
+  } catch (e) {
+    // Lista mal lida vira reposição a menos, que é cobertura inflada — o
+    // contrário do que este bloco existe para avisar. Melhor gritar no log.
+    console.error(`[producao] ${status}:`, e instanceof Error ? e.message : e);
+    registrarFalha(`produção (${status})`, e);
+    return [];
   }
-  return saida;
 }
 
 /**
@@ -169,10 +192,13 @@ async function cortesDaEtapa(srv: Servidor, status: string): Promise<CorteAberto
  *
  * `null` quando não deu para saber — chamada falhou ou o campo não veio.
  */
-async function jaSubiuNoSite(srv: Servidor, codigo: string): Promise<boolean | null> {
+async function jaSubiuNoSite(
+  srv: Servidor,
+  codigo: string,
+): Promise<boolean | null> {
   let texto: string;
   try {
-    texto = await chamarFerramenta(srv, 'buscar_corte', { busca: codigo });
+    texto = await chamarFerramenta(srv, "buscar_corte", { busca: codigo });
   } catch {
     return null;
   }
@@ -181,13 +207,21 @@ async function jaSubiuNoSite(srv: Servidor, codigo: string): Promise<boolean | n
   // código pedido para não ler o campo do corte vizinho.
   const blocos = texto.split(/\n-{3,}\n/);
   const bloco =
-    blocos.find((b) => new RegExp(`^CORTE\\s+${codigo}\\b`, 'im').test(b.trim())) ?? blocos[0];
+    blocos.find((b) =>
+      new RegExp(`^CORTE\\s+${codigo}\\b`, "im").test(b.trim()),
+    ) ?? blocos[0];
 
   const m = bloco.match(/Estoque subido no sistema:\s*(.+)/i);
   if (!m) return null;
 
   const valor = m[1].trim().toLowerCase();
-  return valor !== 'não' && valor !== 'nao' && valor !== '—' && valor !== '-' && valor !== '';
+  return (
+    valor !== "não" &&
+    valor !== "nao" &&
+    valor !== "—" &&
+    valor !== "-" &&
+    valor !== ""
+  );
 }
 
 export async function cortesAbertos(
@@ -200,17 +234,21 @@ export async function cortesAbertos(
 
   const [antesDoGalpao, galpao] = await Promise.all([
     Promise.all(ETAPAS_ANTES_DO_GALPAO.map((s) => cortesDaEtapa(srv, s))),
-    cortesDaEtapa(srv, 'no_galpao'),
+    cortesDaEtapa(srv, "no_galpao"),
   ]);
 
-  const candidatos = galpao.filter((c) => querido(c) && emIso(c.inicio) >= INICIO_DO_CONTROLE);
+  const candidatos = galpao.filter(
+    (c) => querido(c) && emIso(c.inicio) >= INICIO_DO_CONTROLE,
+  );
   const prontas: CorteAberto[] = [];
 
   // Em lotes: o Corte Pro devolve um corte por chamada e o boletim não pode
   // ficar minutos esperando.
   for (let i = 0; i < candidatos.length; i += 5) {
     const lote = candidatos.slice(i, i + 5);
-    const subiu = await Promise.all(lote.map((c) => jaSubiuNoSite(srv, c.codigo)));
+    const subiu = await Promise.all(
+      lote.map((c) => jaSubiuNoSite(srv, c.codigo)),
+    );
     lote.forEach((c, j) => {
       // Na dúvida o corte fica de fora: contar peça que já está na Shopify
       // infla a cobertura, e cobertura inflada é justamente o que esconde a

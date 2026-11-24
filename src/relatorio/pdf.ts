@@ -2463,6 +2463,36 @@ export function limparParaPdf(texto: string): string {
   );
 }
 
+/**
+ * O que não pôde ser conferido, em vermelho e no topo.
+ *
+ * Fica antes dos indicadores de propósito. Um bloco que falhou vira ausência
+ * ou zero mais abaixo, e quem lê de manhã não tem como distinguir "não houve"
+ * de "não consegui ver" — foi assim que o check-in anunciou nenhuma peça em
+ * produção com 9.092 na oficina. Avisar depois dos números seria avisar
+ * tarde: a conclusão já foi tirada.
+ */
+function secaoFalhas(doc: Doc, d: DadosRelatorio) {
+  const falhas = d.falhas ?? [];
+  if (!falhas.length) return;
+
+  titulo(doc, "Não foi possível conferir");
+  paragrafo(
+    doc,
+    `${numero(falhas.length)} bloco(s) deste relatório não puderam ser montados. ` +
+      "O que eles mostrariam está ausente ou zerado abaixo — e ausência aqui não quer " +
+      "dizer que não houve movimento, quer dizer que não deu para olhar.",
+    RUIM,
+  );
+  tabela(
+    doc,
+    ["Bloco", "O que aconteceu"],
+    falhas.map((f) => [f.bloco, f.motivo]),
+    [150, LARGURA - 150],
+    ["left", "left"],
+  );
+}
+
 function secaoLeitura(doc: Doc, d: DadosRelatorio) {
   if (!d.leitura) return;
   titulo(doc, "Leitura do dia");
@@ -2520,6 +2550,7 @@ export function gerarPdf(d: DadosRelatorio): Promise<Buffer> {
 
     zerarNumeracao();
     cabecalho(doc, d);
+    secaoFalhas(doc, d);
     indicadores(doc, d);
     grafico(doc, d);
     /*

@@ -53,6 +53,9 @@ export async function gerarBoletim(dia = ontem()): Promise<Boletim> {
       // Sem isso o modelo escreve a leitura do dia sem enxergar as
       // divergências de estorno que o próprio documento lista uma página antes.
       estornos: dados.estornos,
+      // A leitura do dia precisa saber o que não foi lido: sem isso, o modelo
+      // escreve sobre um zero como se fosse notícia do negócio.
+      falhas: dados.falhas,
     });
     dados.leitura = await redigir(`${PROMPT_RELATORIO}\n\n${contexto}`);
   } catch (e) {

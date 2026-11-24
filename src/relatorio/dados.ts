@@ -1,3 +1,4 @@
+import { registrarFalha, zerarFalhas, falhasDaMontagem, type Falha } from './falhas.js';
 import {
   type MediaDaHora,
   mediaPorHora,
@@ -112,6 +113,8 @@ export interface DadosRelatorio {
   /** O Pix que caiu direto na conta, casado com o pedido. */
   pix: ConferenciaPix | null;
   comprovantes: ConferenciaComprovantes | null;
+  /** Blocos que não puderam ser conferidos nesta montagem. */
+  falhas: Falha[];
   /** A conta que fecha o dia: todo faturamento tem onde ser conferido? */
   contrapartida: Contrapartida;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
@@ -138,11 +141,15 @@ async function opcional<T>(
     return await f();
   } catch (e) {
     console.error(`[relatorio] ${nome} falhou, seguindo sem o bloco:`, e);
+    // O bloco some do relatório, mas a falha não: sem este registro, "não
+    // consegui ler" e "não houve nada" ficam com a mesma cara.
+    registrarFalha(nome, e);
     return null;
   }
 }
 
 export async function coletar(dia: string): Promise<DadosRelatorio> {
+  zerarFalhas();
   // Uma busca só cobre os 15 dias. Ver o comentário em `vendasPorDia`: pedir dia
   // a dia multiplicaria as chamadas e estouraria o balde da Shopify.
   const janela = [dia, ...diasAntes(dia, DIAS_DE_SERIE)];
@@ -278,6 +285,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     manual,
     pix,
     comprovantes,
+    falhas: falhasDaMontagem(),
     contrapartida: conferirContrapartida(
       vendas,
       pagbank,

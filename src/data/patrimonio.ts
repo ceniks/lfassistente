@@ -10,10 +10,12 @@
  *  - e há um limbo entre os dois: peça pronta no galpão que ainda não teve
  *    entrada no site. Ela existe, está paga, e não aparece em lugar nenhum.
  */
-import { estoqueDaLoja, type ItemDeEstoque } from './shopify.js';
-import { chamarFerramenta } from './mcp-client.js';
-import { config } from '../config.js';
-import { CUSTO_POR_CORTE } from './custo-por-corte.js';
+import { estoqueDaLoja, type ItemDeEstoque } from "./shopify.js";
+import { chamarFerramenta } from "./mcp-client.js";
+import { config } from "../config.js";
+import { registrarFalha } from "../relatorio/falhas.js";
+import { lerCortes } from "./cortes-texto.js";
+import { CUSTO_POR_CORTE } from "./custo-por-corte.js";
 
 export interface Patrimonio {
   loja: {
@@ -26,7 +28,12 @@ export interface Patrimonio {
   /** Peças na oficina e no caseado. Em corte fica de fora: ainda é tecido. */
   emProducao: { pecas: number; cortes: number };
   /** Pronto no galpão e sem entrada no site, a partir da data de corte. */
-  semSubirNoSite: { pecas: number; cortes: number; desde: string; lista: CorteParado[] };
+  semSubirNoSite: {
+    pecas: number;
+    cortes: number;
+    desde: string;
+    lista: CorteParado[];
+  };
   /** Produtos da loja para os quais não achamos custo no Corte Pro. */
   semCusto: { produtos: number; pecas: number };
   /** Custo baixo demais para o preço — quase sempre registro errado no corte. */
@@ -58,22 +65,22 @@ export interface CorteParado {
 }
 
 /** Só cortes que chegaram ao galpão a partir daqui entram na conta do que falta subir. */
-const DESDE_PADRAO = '2026-07-01';
+const DESDE_PADRAO = "2026-07-01";
 
 function servidor() {
   const c = config();
   if (!c.CORTEPRO_MCP_URL) return null;
-  return { nome: 'cortepro', url: c.CORTEPRO_MCP_URL, token: c.CORTEPRO_TOKEN };
+  return { nome: "cortepro", url: c.CORTEPRO_MCP_URL, token: c.CORTEPRO_TOKEN };
 }
 
 /** "R$ 96.307,49" → 96307.49 */
 function dinheiroBr(texto: string): number {
-  return Number(texto.replace(/\./g, '').replace(',', '.'));
+  return Number(texto.replace(/\./g, "").replace(",", "."));
 }
 
 /** "14/08/2026" → "2026-08-14", para comparar como texto. */
 function isoDeBr(br: string): string {
-  const [d, m, a] = br.split('/');
+  const [d, m, a] = br.split("/");
   return `${a}-${m}-${d}`;
 }
 
@@ -86,13 +93,13 @@ function isoDeBr(br: string): string {
  */
 export function chaveDeProduto(nome: string): string {
   return nome
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
-    .replace(/\bref:?\s*[\w-]+/g, '')
-    .replace(/\([^)]*\)/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\bref:?\s*[\w-]+/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -105,23 +112,22 @@ export function chaveDeProduto(nome: string): string {
  * 4.174 peças ficavam sem custo por causa de um adjetivo.
  */
 const PALAVRAS_DE_VARIACAO = new Set([
-  'novo',
-  'nova',
-  'conj',
-  'jaqueta',
-  'babado',
-  'bicudo',
-  'listrado',
-  'listrada',
-  'listardo',
-  'longo',
-  'curto',
+  "novo",
+  "nova",
+  "conj",
+  "jaqueta",
+  "babado",
+  "bicudo",
+  "listrado",
+  "listrada",
+  "listardo",
+  "longo",
+  "curto",
 ]);
 
 function tokens(chave: string): string[] {
-  return chave.split(' ').filter((t) => t && !PALAVRAS_DE_VARIACAO.has(t));
+  return chave.split(" ").filter((t) => t && !PALAVRAS_DE_VARIACAO.has(t));
 }
-
 
 interface LinhaDeCorte {
   codigo: string;
@@ -172,7 +178,10 @@ function formaDoProduto(titulo: string): Forma | null {
 /** O modelo da loja tem de caber inteiro no modelo do corte, ou o contrário. */
 function formasCasam(a: Forma, b: Forma): boolean {
   if (a.categoria !== b.categoria) return false;
-  const [curto, longo] = a.modelo.length <= b.modelo.length ? [a.modelo, b.modelo] : [b.modelo, a.modelo];
+  const [curto, longo] =
+    a.modelo.length <= b.modelo.length
+      ? [a.modelo, b.modelo]
+      : [b.modelo, a.modelo];
   const cesta = new Set(longo);
   return curto.length > 0 && curto.every((t) => cesta.has(t));
 }
@@ -180,27 +189,47 @@ function formasCasam(a: Forma, b: Forma): boolean {
 const LINHA =
   /•\s*([\w-]+)\s*—\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*pç.*?início\s*(\d{2}\/\d{2}\/\d{4})(?:.*?saiu da oficina\s*(\d{2}\/\d{2}\/\d{4}))?/g;
 
-async function listar(srv: NonNullable<ReturnType<typeof servidor>>, status: string) {
+async function listar(
+  srv: NonNullable<ReturnType<typeof servidor>>,
+  status: string,
+) {
   let texto: string;
   try {
-    texto = await chamarFerramenta(srv, 'listar_cortes', { status, limite: 200 });
+    texto = await chamarFerramenta(srv, "listar_cortes", {
+      status,
+      limite: 200,
+    });
   } catch {
     return [] as LinhaDeCorte[];
   }
-  const saida: LinhaDeCorte[] = [];
-  for (const m of texto.matchAll(LINHA)) {
-    const bruto = m[2].trim();
-    const categoria = bruto.match(/\(([^)]*)\)\s*$/)?.[1] ?? '';
-    saida.push({
-      codigo: m[1],
-      produto: bruto,
-      categoria,
-      pecas: Number(m[4]),
-      inicio: isoDeBr(m[5]),
-      chegouNoGalpao: m[6],
-    });
+
+  /*
+   * Falha de leitura sobe no log em vez de virar zero.
+   *
+   * Quando o formato mudou, "Em produção: 0 peças" saiu no check-in com 9.092
+   * peças na oficina — e ninguém tinha como saber que era parse quebrado e
+   * não galpão vazio.
+   */
+  let cortes;
+  try {
+    cortes = lerCortes(texto);
+  } catch (e) {
+    console.error(
+      `[patrimonio] ${status}:`,
+      e instanceof Error ? e.message : e,
+    );
+    registrarFalha(`patrimônio (${status})`, e);
+    return [] as LinhaDeCorte[];
   }
-  return saida;
+
+  return cortes.map((c): LinhaDeCorte => ({
+    codigo: c.codigo,
+    produto: c.produto,
+    categoria: c.categoria,
+    pecas: c.pecas,
+    inicio: isoDeBr(c.inicio),
+    chegouNoGalpao: c.saiuDaOficina,
+  }));
 }
 
 interface Detalhe {
@@ -215,18 +244,23 @@ async function detalhe(
 ): Promise<Detalhe | null> {
   let texto: string;
   try {
-    texto = await chamarFerramenta(srv, 'buscar_corte', { busca: codigo });
+    texto = await chamarFerramenta(srv, "buscar_corte", { busca: codigo });
   } catch {
     return null;
   }
 
   const blocos = texto.split(/\n-{3,}\n/);
   const bloco =
-    blocos.find((b) => new RegExp(`^CORTE\\s+${codigo}\\b`, 'im').test(b.trim())) ?? blocos[0];
+    blocos.find((b) =>
+      new RegExp(`^CORTE\\s+${codigo}\\b`, "im").test(b.trim()),
+    ) ?? blocos[0];
 
   const pecas = Number(bloco.match(/Total de peças:\s*(\d+)/i)?.[1] ?? 0);
   const custo = bloco.match(/Custo total:\s*R\$\s*([\d.,]+)/i)?.[1];
-  const subido = bloco.match(/Estoque subido no sistema:\s*(.+)/i)?.[1]?.trim().toLowerCase();
+  const subido = bloco
+    .match(/Estoque subido no sistema:\s*(.+)/i)?.[1]
+    ?.trim()
+    .toLowerCase();
 
   return {
     pecas,
@@ -234,19 +268,26 @@ async function detalhe(
     subiu:
       subido === undefined
         ? null
-        : subido !== 'não' && subido !== 'nao' && subido !== '—' && subido !== '-' && subido !== '',
+        : subido !== "não" &&
+          subido !== "nao" &&
+          subido !== "—" &&
+          subido !== "-" &&
+          subido !== "",
   };
 }
 
 /** Roda em lotes: o Corte Pro responde um corte por chamada. */
-async function emLotes<T, R>(itens: T[], tamanho: number, f: (x: T) => Promise<R>): Promise<R[]> {
+async function emLotes<T, R>(
+  itens: T[],
+  tamanho: number,
+  f: (x: T) => Promise<R>,
+): Promise<R[]> {
   const saida: R[] = [];
   for (let i = 0; i < itens.length; i += tamanho) {
     saida.push(...(await Promise.all(itens.slice(i, i + tamanho).map(f))));
   }
   return saida;
 }
-
 
 /**
  * Custo por peça de cada produto da loja, a partir da tabela exportada.
@@ -273,7 +314,7 @@ export function tabelaDeCusto(): (titulo: string) => number | undefined {
       codigo: linha.corte,
       produto: linha.produto,
       // A exportação não traz a categoria; o nome carrega ela na frente.
-      categoria: '',
+      categoria: "",
       pecas: 0,
       inicio: linha.data,
     });
@@ -281,7 +322,8 @@ export function tabelaDeCusto(): (titulo: string) => number | undefined {
   }
 
   const formasPorChave = new Map<string, Forma[]>();
-  for (const [chave, corte] of corteDoCusto) formasPorChave.set(chave, formasDoCorte(corte));
+  for (const [chave, corte] of corteDoCusto)
+    formasPorChave.set(chave, formasDoCorte(corte));
 
   return (titulo: string) => {
     const chave = chaveDeProduto(titulo);
@@ -301,7 +343,9 @@ export function tabelaDeCusto(): (titulo: string) => number | undefined {
   };
 }
 
-export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio | null> {
+export async function patrimonioDoDia(
+  desde = DESDE_PADRAO,
+): Promise<Patrimonio | null> {
   const srv = servidor();
   const loja = await estoqueDaLoja();
 
@@ -310,7 +354,12 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
 
   if (!srv) {
     return {
-      loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto: null, valorDeVendaComCusto: 0 },
+      loja: {
+        pecas: pecasNaLoja,
+        valorDeVenda,
+        valorDeCusto: null,
+        valorDeVendaComCusto: 0,
+      },
       emProducao: { pecas: 0, cortes: 0 },
       semSubirNoSite: { pecas: 0, cortes: 0, desde, lista: [] },
       semCusto: { produtos: loja.length, pecas: pecasNaLoja },
@@ -319,10 +368,10 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
   }
 
   const [oficina, caseado, galpao, finalizados] = await Promise.all([
-    listar(srv, 'na_oficina'),
-    listar(srv, 'caseado'),
-    listar(srv, 'no_galpao'),
-    listar(srv, 'finalizado'),
+    listar(srv, "na_oficina"),
+    listar(srv, "caseado"),
+    listar(srv, "no_galpao"),
+    listar(srv, "finalizado"),
   ]);
 
   const emProducao = {
@@ -359,7 +408,11 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
   // boletim; agora são os poucos candidatos a "não subiu no site".
   const codigos = [...new Set(candidatos.map((c) => c.codigo))];
   const detalhes = new Map<string, Detalhe>();
-  const lidos = await emLotes(codigos, 6, async (cod) => [cod, await detalhe(srv, cod)] as const);
+  const lidos = await emLotes(
+    codigos,
+    6,
+    async (cod) => [cod, await detalhe(srv, cod)] as const,
+  );
   for (const [cod, d] of lidos) if (d) detalhes.set(cod, d);
 
   const buscarCusto = tabelaDeCusto();
@@ -399,10 +452,17 @@ export async function patrimonioDoDia(desde = DESDE_PADRAO): Promise<Patrimonio 
 
   // Na dúvida o corte conta como já subido: dizer que falta subir peça que já
   // está no site inventa estoque que não existe.
-  const parados = candidatos.filter((c) => detalhes.get(c.codigo)?.subiu === false);
+  const parados = candidatos.filter(
+    (c) => detalhes.get(c.codigo)?.subiu === false,
+  );
 
   return {
-    loja: { pecas: pecasNaLoja, valorDeVenda, valorDeCusto, valorDeVendaComCusto },
+    loja: {
+      pecas: pecasNaLoja,
+      valorDeVenda,
+      valorDeCusto,
+      valorDeVendaComCusto,
+    },
     emProducao,
     semSubirNoSite: {
       pecas: parados.reduce((t, c) => t + c.pecas, 0),
