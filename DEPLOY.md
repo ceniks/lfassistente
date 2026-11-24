@@ -240,6 +240,23 @@ marcadores `{tratamento}`, `{primeiro}`, `{nome}` e `{mes}`. A página carrega
 esses modelos em campos editáveis: dá para ajustar o texto de um mês específico
 sem mexer em variável nenhuma.
 
+## Histórico de estoque
+
+Cada montagem do boletim guarda o balanço do dia em `dados/estoque-diario.json`
+(volume `/app/dados`): peças no site, valor, em produção, pronto fora do site,
+e as peças vendidas no dia que o boletim cobriu.
+
+Existe porque, sem ele, "quantas peças o site tinha no dia 19?" só se
+respondia somando as vendas de volta a partir de hoje — conta que assume que
+nada entrou e quebra no primeiro dia de reposição (foi o caso da Calça Tóquio
+em 19/11). Com duas medições e as vendas entre elas, o que entrou no site é a
+diferença: o PDF mostra isso na linha "entrou no site", sem depender de
+ninguém registrar a reposição no Corte Pro. Entrada negativa é peça que saiu
+sem venda — despublicação, ajuste ou perda.
+
+A primeira medição só aparece no segundo dia: no primeiro não há com o que
+comparar, e dizer "entraram 0" ali seria inventar.
+
 ## Cobrança no grupo do atendimento
 
 Todo dia, junto do boletim, o assistente manda no grupo do atendimento os

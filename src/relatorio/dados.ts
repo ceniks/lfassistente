@@ -1,5 +1,10 @@
 import { registrarFalha, zerarFalhas, falhasDaMontagem, type Falha } from './falhas.js';
 import {
+  movimentoAte,
+  registrarBalanco,
+  type Movimento,
+} from '../data/historico-estoque.js';
+import {
   type MediaDaHora,
   mediaPorHora,
   periodoDeVendas,
@@ -115,6 +120,8 @@ export interface DadosRelatorio {
   comprovantes: ConferenciaComprovantes | null;
   /** Blocos que não puderam ser conferidos nesta montagem. */
   falhas: Falha[];
+  /** O que entrou e saiu do site desde a medição anterior. */
+  movimentoDoEstoque: Movimento | null;
   /** A conta que fecha o dia: todo faturamento tem onde ser conferido? */
   contrapartida: Contrapartida;
   /** Média dos 7 dias anteriores em cada hora de corte, para comparar o ritmo. */
@@ -286,6 +293,7 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
     pix,
     comprovantes,
     falhas: falhasDaMontagem(),
+    movimentoDoEstoque: registrarEBalancear(dia, patrimonio, vendas),
     contrapartida: conferirContrapartida(
       vendas,
       pagbank,
@@ -317,4 +325,42 @@ export async function coletar(dia: string): Promise<DadosRelatorio> {
         : null,
     ),
   };
+}
+
+/**
+ * Guarda o balanço de hoje e devolve o movimento desde a medição anterior.
+ *
+ * O estoque é medido agora, não no dia do boletim — por isso a chave é o dia
+ * da medição. Misturar os dois faria a série contar duas vezes o mesmo dia
+ * quando um boletim antigo é remontado à mão.
+ */
+function registrarEBalancear(
+  diaDoBoletim: string,
+  patrimonio: DadosRelatorio['patrimonio'],
+  vendas: ResumoVendas,
+): Movimento | null {
+  if (!patrimonio) return null;
+
+  const medidoEm = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  }).format(new Date());
+
+  try {
+    registrarBalanco({
+      medidoEm,
+      noSite: patrimonio.loja.pecas,
+      valorDeVenda: patrimonio.loja.valorDeVenda,
+      valorDeCusto: patrimonio.loja.valorDeCusto,
+      emProducao: patrimonio.emProducao.pecas,
+      prontoForaDoSite: patrimonio.semSubirNoSite.pecas,
+      diaDoBoletim,
+      vendidasNoDia: vendas.pecas,
+    });
+    return movimentoAte(medidoEm);
+  } catch (e) {
+    // Histórico é memória, não é o relatório: falhar aqui não pode derrubar
+    // a montagem do dia.
+    console.error('[estoque] não consegui guardar o balanço:', e);
+    return null;
+  }
 }

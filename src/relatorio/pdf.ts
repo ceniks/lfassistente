@@ -589,6 +589,30 @@ function secaoPatrimonio(doc: Doc, d: DadosRelatorio) {
       "etiqueta ÷ custo, só das peças que têm custo no Corte Pro",
     );
   }
+  /*
+   * O que mudou desde a última medição.
+   *
+   * Sem esta linha, "o site tinha 55 mil e agora tem 52" só se explicava
+   * refazendo a conta de cabeça — e a conta quebra no primeiro dia em que
+   * algo entra, porque a entrada não deixa rastro em lugar nenhum. Aqui ela
+   * é deduzida de duas medições e das vendas do intervalo.
+   */
+  const mov = d.movimentoDoEstoque;
+  if (mov) {
+    const dias = mov.de === mov.ate ? "" : ` desde ${mov.de.slice(8, 10)}/${mov.de.slice(5, 7)}`;
+    linha(
+      doc,
+      "  entrou no site",
+      mov.entraram >= 0 ? numero(mov.entraram) : `${numero(mov.entraram)}`,
+      mov.entraram > 0
+        ? `peças${dias} — ${numero(mov.estoqueDe)} na medição anterior, ${numero(mov.vendidas)} vendidas`
+        : mov.entraram === 0
+          ? `nenhuma reposição${dias} — a queda é só venda`
+          : `peças saíram do site sem venda${dias}: despublicação, ajuste ou perda`,
+      mov.entraram < 0 ? RUIM : TINTA3,
+    );
+  }
+
   linha(
     doc,
     "Em produção",
