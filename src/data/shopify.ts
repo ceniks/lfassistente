@@ -1337,6 +1337,45 @@ export interface ItemDeEstoque {
  * variante a variante, porque o mesmo produto pode ter preço diferente por
  * tamanho ou cor. Quantidade negativa (venda sem baixa) entra como zero.
  */
+/**
+ * Quantas peças o site tem agora — e só isso.
+ *
+ * A consulta mais enxuta que dá o número certo: só a quantidade de cada
+ * variante, sem preço, título ou data. Duas chamadas para os 76 produtos
+ * ativos, menos de um segundo.
+ *
+ * O `totalInventory` do produto seria uma chamada só, mas erra: ele soma as
+ * variantes **com** as negativas, e tamanho vendido além do estoque (Casaco
+ * Itália Champagne GG em -2, por exemplo) desconta peça de outro tamanho que
+ * está fisicamente na prateleira. Em 24/11 a diferença era de 21 peças. O
+ * número que importa é peça existente, então negativa conta como zero.
+ */
+export async function pecasNoSite(): Promise<number> {
+  const query = `query($cursor: String) {
+    products(first: 50, after: $cursor, query: "status:active") {
+      nodes { variants(first: 100) { nodes { inventoryQuantity } } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }`;
+
+  let total = 0;
+  let cursor: string | null = null;
+  for (let i = 0; i < 40; i++) {
+    const r: {
+      products: {
+        nodes: Array<{ variants: { nodes: Array<{ inventoryQuantity: number | null }> } }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string };
+      };
+    } = await admin(query, { cursor });
+    for (const p of r.products.nodes) {
+      for (const v of p.variants.nodes) total += Math.max(0, v.inventoryQuantity ?? 0);
+    }
+    if (!r.products.pageInfo.hasNextPage) break;
+    cursor = r.products.pageInfo.endCursor;
+  }
+  return total;
+}
+
 export async function estoqueDaLoja(): Promise<ItemDeEstoque[]> {
   interface Pagina {
     products: {

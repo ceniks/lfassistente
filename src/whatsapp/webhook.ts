@@ -4,6 +4,8 @@ import { enviarTexto, enviarDocumento, estadoDaInstancia, baixarMidia } from './
 import { rotasDeRh } from '../rh/web.js';
 import { ehDeRepasse, jidsDeRepasse, repassar, temRepasse, ultimosRepasses } from './repasse.js';
 import { emAberto } from '../cobranca/pendencias.js';
+import { perguntaDeEstoqueNoSite } from './atalhos.js';
+import { pecasNoSite } from '../data/shopify.js';
 import { ultimaCobranca } from '../cobranca/index.js';
 import { lerAdiada } from '../cobranca/adiada.js';
 import { lerBoletimAdiado } from '../digest/adiado.js';
@@ -270,6 +272,25 @@ async function tratar(req: Request): Promise<void> {
   const pedido = pedidoDeBoletim(texto);
   if (pedido) {
     await enviarBoletim(quem, pedido.dia);
+    return;
+  }
+
+  // "Quantas peças tem no site?" — um número, uma consulta, nenhum token.
+  if (perguntaDeEstoqueNoSite(texto)) {
+    try {
+      const n = await pecasNoSite();
+      const agora = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date());
+      await enviarTexto(quem, `No site agora (${agora}): *${n.toLocaleString('pt-BR')} peças* em estoque.`);
+    } catch (e) {
+      await enviarTexto(
+        quem,
+        `Não consegui ler o estoque da Shopify agora: ${e instanceof Error ? e.message : e}`,
+      );
+    }
     return;
   }
 
